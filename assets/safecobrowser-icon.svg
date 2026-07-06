@@ -1,0 +1,25 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="tile" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5D95FF" />
+      <stop offset="55%" stop-color="#3366FF" />
+      <stop offset="100%" stop-color="#1F49D8" />
+    </linearGradient>
+  </defs>
+
+  <!-- macOS rounded-rect app tile (Apple icon grid: 824 centered in 1024, r185) -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)" />
+
+  <!-- browser window glyph -->
+  <rect x="264" y="316" width="496" height="392" rx="46" fill="#ffffff" />
+
+  <!-- toolbar: traffic-light dots (FlowStations blue shades) + divider -->
+  <circle cx="324" cy="376" r="16" fill="#3366FF" />
+  <circle cx="376" cy="376" r="16" fill="#5D95FF" />
+  <circle cx="428" cy="376" r="16" fill="#7CB8FF" />
+  <rect x="264" y="436" width="496" height="6" fill="#DCE7FF" />
+
+  <!-- flow arrow in the content area (nods to the FlowProxy family motif) -->
+  <path d="M392 572 H632 M632 572 L584 526 M632 572 L584 618"
+        stroke="#3366FF" stroke-width="36" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

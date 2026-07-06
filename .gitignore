@@ -1,0 +1,15 @@
+node_modules/
+dist/
+release/
+Screenshot/
+*.log
+.DS_Store
+
+# Signing secrets — NEVER commit (private keys / certs / notary creds)
+*.p12
+*.pem
+*.cer
+*.certSigningRequest
+*.mobileprovision
+.env
+.env.*

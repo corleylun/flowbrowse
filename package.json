@@ -1,0 +1,51 @@
+{
+  "name": "safecobrowser",
+  "version": "0.0.1",
+  "description": "Co-browser lite — the permission + audit layer for letting your AI agent act on your logged-in accounts.",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && cp src/renderer/index.html dist/renderer/index.html",
+    "start": "npm run build && electron .",
+    "dev": "npm run build && electron .",
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "icon": "bash scripts/make-icon.sh",
+    "dist:mac": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac -c.mac.target=dir",
+    "dist:mac:signed": "npm run build && electron-builder --mac -c.mac.notarize=true",
+    "dist:linux": "npm run build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --linux"
+  },
+  "build": {
+    "appId": "net.flowstations.safecobrowser",
+    "productName": "SafeCoBrowser",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "package.json"],
+    "mac": {
+      "target": ["dmg", "zip"],
+      "category": "public.app-category.productivity",
+      "icon": "build/icon.icns",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "linux": {
+      "target": ["AppImage", "tar.gz"],
+      "category": "Development",
+      "icon": "build/icon-1024.png",
+      "maintainer": "FlowStations <support@flowstations.net>",
+      "synopsis": "Bring your own AI agent into your logged-in browser, under per-tab, revocable, audited permission.",
+      "description": "SafeCoBrowser is an open-source AI co-browsing browser. Bring Claude Code, Codex, or any MCP agent into your logged-in browser — off by default, per-tab permission, instant kill switch, full audit log."
+    }
+  },
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "devDependencies": {
+    "@types/node": "^26.0.0",
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}

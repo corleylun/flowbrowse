@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data:;"
+    />
+    <title>SafeCoBrowser</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+        background: Canvas;
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        height: 56px;
+        padding: 0 12px;
+        border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+      }
+      .bar.rec {
+        height: 40px;
+        gap: 6px;
+        font-size: 12px;
+      }
+      .bar.tabs {
+        height: 36px;
+        gap: 4px;
+        padding: 0 8px;
+        overflow: hidden;
+      }
+      #tabstrip {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        flex: 1;
+        overflow-x: auto;
+      }
+      .tab {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        max-width: 220px;
+        padding: 0 6px 0 10px;
+        border-radius: 7px 7px 0 0;
+        background: color-mix(in srgb, CanvasText 7%, transparent);
+        font-size: 12px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      .tab.active {
+        background: color-mix(in srgb, CanvasText 16%, transparent);
+        font-weight: 600;
+      }
+      .tab-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 150px;
+      }
+      .tab-badge {
+        font-size: 10px;
+        padding: 1px 5px;
+        border-radius: 6px;
+        background: #3366ff;
+        color: #fff;
+        white-space: nowrap;
+      }
+      .tab-close {
+        border: none;
+        background: transparent;
+        color: CanvasText;
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+        opacity: 0.6;
+        padding: 0 2px;
+      }
+      .tab-close:hover {
+        opacity: 1;
+      }
+      #tab-new {
+        width: 28px;
+      }
+      button.nav {
+        width: 38px;
+        height: 38px;
+        border: none;
+        border-radius: 9px;
+        background: transparent;
+        font-size: 21px;
+        line-height: 1;
+        cursor: pointer;
+        color: CanvasText;
+      }
+      button.nav:hover:not(:disabled) {
+        background: color-mix(in srgb, #3366ff 12%, transparent);
+        color: #3366ff; /* FlowStations-blue tint on hover */
+      }
+      button.nav:disabled {
+        opacity: 0.3;
+        cursor: default;
+      }
+      #addr {
+        flex: 1;
+        height: 36px;
+        padding: 0 14px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        border-radius: 18px;
+        background: color-mix(in srgb, CanvasText 5%, transparent);
+        color: CanvasText;
+        font-size: 14px;
+        outline: none;
+      }
+      #addr:focus {
+        border-color: #3366ff;
+      }
+      .ai {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      #ai-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 10px;
+        border-radius: 14px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        color: #fff;
+        background: #8a8a8e;
+      }
+      #ai-indicator::before {
+        content: '';
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #fff;
+        opacity: 0.9;
+      }
+      #ai-indicator.mode-blocked { background: #8a8a8e; }
+      #ai-indicator.mode-read { background: #3366ff; }
+      #ai-indicator.mode-inspect { background: #30b0a0; }
+      #ai-indicator.mode-act { background: #ff9f0a; }
+      #ai-indicator.mode-develop { background: #ff453a; }
+      #mode {
+        height: 30px;
+        border-radius: 8px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        background: Canvas;
+        color: CanvasText;
+        font-size: 13px;
+        padding: 0 6px;
+      }
+      #stop-ai {
+        height: 30px;
+        padding: 0 12px;
+        border: none;
+        border-radius: 8px;
+        background: #ff453a;
+        color: #fff;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      #stop-ai:disabled { opacity: 0.35; cursor: default; }
+      #auto-actions.on {
+        background: #ff9f0a;
+        color: #fff;
+        border-color: #ff9f0a;
+      }
+      #auto-runjs.on {
+        background: #ff453a;
+        color: #fff;
+        border-color: #ff453a;
+      }
+      #real-input.on {
+        background: #30d158;
+        color: #fff;
+        border-color: #30d158;
+      }
+
+      /* recorder row */
+      .recbtn {
+        height: 26px;
+        padding: 0 10px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        border-radius: 7px;
+        background: Canvas;
+        color: CanvasText;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .recbtn:disabled { opacity: 0.4; cursor: default; }
+      #settings-btn { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+      #settings-btn .gear { font-size: 16px; line-height: 1; }
+      #record.on {
+        background: #ff453a;
+        color: #fff;
+        border-color: #ff453a;
+      }
+      #rec-name {
+        height: 26px;
+        width: 130px;
+        padding: 0 8px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        border-radius: 7px;
+        background: color-mix(in srgb, CanvasText 5%, transparent);
+        color: CanvasText;
+        font-size: 12px;
+        outline: none;
+      }
+      #recipes {
+        height: 26px;
+        border-radius: 7px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        background: Canvas;
+        color: CanvasText;
+        font-size: 12px;
+      }
+      #rec-status {
+        font-size: 12px;
+        opacity: 0.7;
+        margin-left: auto;
+      }
+      #container {
+        height: 26px;
+        border-radius: 7px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 12px;
+        font-weight: 600;
+        max-width: 130px;
+      }
+      .rec-divider {
+        width: 1px;
+        height: 22px;
+        background: color-mix(in srgb, CanvasText 18%, transparent);
+        margin: 0 2px;
+      }
+      /* Record/Replay group — display:contents so its children flow in the flex bar;
+         the [hidden] rule (higher specificity) wins to hide the whole group for now. */
+      #recorder-group {
+        display: contents;
+      }
+      #recorder-group[hidden] {
+        display: none;
+      }
+
+      /* activity log panel */
+      #activity {
+        position: fixed;
+        top: 138px;
+        left: 12px;
+        right: 12px;
+        max-height: 300px;
+        display: none;
+        flex-direction: column;
+        border-radius: 12px;
+        background: Canvas;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+        overflow: hidden;
+      }
+      #activity.show {
+        display: flex;
+      }
+      .activity-head {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 10px;
+        border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+        font-size: 13px;
+      }
+      .act-spacer {
+        flex: 1;
+      }
+      .filt {
+        height: 24px;
+        padding: 0 8px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        border-radius: 6px;
+        background: Canvas;
+        color: CanvasText;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .filt.active {
+        background: #3366ff;
+        color: #fff;
+        border-color: #3366ff;
+      }
+      #activity-list {
+        overflow-y: auto;
+        padding: 4px 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+      .act-row {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 3px 12px;
+        white-space: nowrap;
+      }
+      .act-row .act-time {
+        opacity: 0.55;
+      }
+      .act-row .act-out {
+        width: 14px;
+        text-align: center;
+      }
+      .act-row.allowed .act-out {
+        color: #30c060;
+      }
+      .act-row.denied .act-out {
+        color: #ff9f0a;
+      }
+      .act-row.error .act-out {
+        color: #ff453a;
+      }
+      .act-row .act-tool {
+        font-weight: 600;
+      }
+      .act-row .act-meta {
+        opacity: 0.7;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #activity-empty {
+        padding: 14px 12px;
+        opacity: 0.6;
+        font-family: -apple-system, sans-serif;
+      }
+
+      /* approval card */
+      #approval {
+        position: fixed;
+        top: 138px;
+        right: 12px;
+        width: 320px;
+        /* Bound the card to the visible chrome height so the buttons are never clipped below the
+           view's bottom edge; the body scrolls, the actions stay pinned. 100vh = chrome view px. */
+        max-height: calc(100vh - 150px);
+        padding: 14px;
+        border-radius: 12px;
+        background: Canvas;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        font-size: 13px;
+        display: none;
+        flex-direction: column;
+      }
+      #approval.show { display: flex; }
+      #approval .risk {
+        flex: 0 0 auto;
+        font-weight: 700;
+        text-transform: uppercase;
+        font-size: 11px;
+        color: #ff453a;
+      }
+      #approval .ap-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+        margin-top: 6px;
+      }
+      #approval-tab {
+        margin-top: 4px;
+        font-size: 12px;
+        font-weight: 600;
+        color: color-mix(in srgb, CanvasText 65%, transparent);
+        display: none;
+      }
+      #approval-tab.show { display: block; }
+      #approval-detail {
+        margin: 8px 0 0;
+        padding: 8px;
+        background: color-mix(in srgb, CanvasText 8%, transparent);
+        border-radius: 6px;
+        font-size: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        white-space: pre-wrap;
+        word-break: break-word;
+        display: none;
+      }
+      #approval-detail.show { display: block; }
+      #approval-preview {
+        position: relative;
+        margin: 8px 0 0;
+        display: none;
+        border-radius: 6px;
+        overflow: hidden;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        max-height: 220px;
+      }
+      #approval-preview.show { display: block; }
+      #approval-preview-img { display: block; width: 100%; height: auto; }
+      #approval-crosshair {
+        position: absolute;
+        width: 22px;
+        height: 22px;
+        margin: -11px 0 0 -11px;
+        border: 2px solid #ff453a;
+        border-radius: 50%;
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85), 0 0 8px rgba(255, 69, 58, 0.9);
+        pointer-events: none;
+        display: none;
+      }
+      #approval-crosshair.show { display: block; }
+      #approval .actions {
+        flex: 0 0 auto;
+        display: flex;
+        gap: 8px;
+        margin-top: 12px;
+      }
+      #approval button {
+        flex: 1;
+        height: 32px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      #approve { background: #3366ff; color: #fff; }
+      #reject { background: color-mix(in srgb, CanvasText 12%, transparent); color: CanvasText; }
+
+      /* modals (new container, manage, recipes, recipe editor) */
+      #container-modal,
+      #manage-modal,
+      #recipe-modal,
+      #editor-modal,
+      #downloads-modal,
+      #privacy-modal,
+      #settings-modal {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.35);
+        z-index: 50;
+      }
+      #container-modal.show,
+      #manage-modal.show,
+      #recipe-modal.show,
+      #editor-modal.show,
+      #downloads-modal.show,
+      #privacy-modal.show,
+      #settings-modal.show { display: flex; }
+      #container-modal .sheet,
+      #manage-modal .sheet,
+      #recipe-modal .sheet,
+      #editor-modal .sheet,
+      #downloads-modal .sheet,
+      #privacy-modal .sheet,
+      #settings-modal .sheet {
+        width: 320px;
+        padding: 18px;
+        border-radius: 12px;
+        background: Canvas;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      }
+      #manage-modal .sheet { width: 400px; }
+      .sheet.wide { width: 520px !important; }
+      #container-modal h2,
+      #manage-modal h2,
+      #recipe-modal h2,
+      #editor-modal h2,
+      #downloads-modal h2,
+      #privacy-modal h2,
+      #settings-modal h2 {
+        margin: 0 0 4px;
+        font-size: 14px;
+        font-weight: 700;
+      }
+      #container-modal p,
+      #manage-modal p,
+      #recipe-modal p,
+      #editor-modal p,
+      #downloads-modal p,
+      #privacy-modal p,
+      #settings-modal p {
+        margin: 0 0 12px;
+        font-size: 12px;
+        color: color-mix(in srgb, CanvasText 60%, transparent);
+      }
+      #cm-name {
+        width: 100%;
+        box-sizing: border-box;
+        height: 34px;
+        padding: 0 10px;
+        border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 13px;
+        outline: none;
+      }
+      #cm-name:focus { border-color: #3366ff; }
+      #cm-error {
+        min-height: 16px;
+        margin: 6px 2px 0;
+        font-size: 11px;
+        color: #ff453a;
+      }
+      #container-modal .actions,
+      #manage-modal .actions,
+      #recipe-modal .actions,
+      #editor-modal .actions,
+      #settings-modal .actions {
+        display: flex;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      #container-modal .actions button,
+      #manage-modal .actions button,
+      #recipe-modal .actions button,
+      #editor-modal .actions button,
+      #settings-modal .actions button {
+        flex: 1;
+        height: 32px;
+        border: none;
+        border-radius: 8px;
+        cursor: pointer;
+        font-weight: 600;
+      }
+      #ed-save { background: #3366ff; color: #fff; }
+      #ua-apply { background: #3366ff; color: #fff; }
+      /* manage-modal rows */
+      #mg-list {
+        max-height: 320px;
+        overflow: auto;
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+      }
+      .mg-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+      }
+      .mg-row:last-child { border-bottom: none; }
+      .mg-name {
+        flex: 1;
+        min-width: 0;
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .mg-count {
+        font-size: 11px;
+        color: color-mix(in srgb, CanvasText 50%, transparent);
+        white-space: nowrap;
+      }
+      .mg-name-input {
+        flex: 1;
+        min-width: 0;
+        height: 28px;
+        padding: 0 8px;
+        border: 1px solid #3366ff;
+        border-radius: 7px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 13px;
+        outline: none;
+      }
+      .mg-row button {
+        height: 26px;
+        padding: 0 10px;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+        border-radius: 7px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .mg-row button:disabled { opacity: 0.35; cursor: default; }
+      .mg-row button.danger:not(:disabled) { color: #ff453a; border-color: color-mix(in srgb, #ff453a 40%, transparent); }
+      #dl-list {
+        max-height: 320px;
+        overflow: auto;
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+      }
+      .dl-meta {
+        font-size: 11px;
+        color: color-mix(in srgb, CanvasText 50%, transparent);
+        white-space: nowrap;
+      }
+      .dl-empty {
+        padding: 18px 12px;
+        text-align: center;
+        font-size: 12px;
+        color: color-mix(in srgb, CanvasText 45%, transparent);
+      }
+      #pv-list {
+        max-height: 260px;
+        overflow: auto;
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+        margin-bottom: 10px;
+      }
+      .pv-enable {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 10px;
+      }
+      .pv-label {
+        font-size: 11px;
+        color: color-mix(in srgb, CanvasText 55%, transparent);
+        white-space: nowrap;
+      }
+      .pv-add {
+        display: flex;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .pv-add #pv-match { flex: 2; min-width: 0; }
+      .pv-add #pv-replace { flex: 1; min-width: 0; }
+      .pv-add input {
+        height: 30px;
+        padding: 0 9px;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+        border-radius: 7px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 13px;
+        outline: none;
+      }
+      .pv-add input:focus { border-color: #3366ff; }
+      .pv-add button {
+        height: 30px;
+        padding: 0 12px;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+        border-radius: 7px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      #pv-error {
+        min-height: 16px;
+        font-size: 12px;
+        color: #ff453a;
+        margin: 2px 2px 6px;
+      }
+      #ua-list {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        margin-bottom: 10px;
+      }
+      .ua-opt {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 8px;
+        border-radius: 7px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .ua-opt:hover { background: color-mix(in srgb, CanvasText 6%, transparent); }
+      .ua-opt input { margin: 0; }
+      .ua-opt-label { flex: 0 0 auto; }
+      .ua-opt-hint {
+        flex: 1 1 auto;
+        min-width: 0;
+        font-size: 10px;
+        color: color-mix(in srgb, CanvasText 45%, transparent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #ua-custom {
+        width: 100%;
+        box-sizing: border-box;
+        height: 34px;
+        padding: 0 10px;
+        border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 12px;
+        outline: none;
+        margin-bottom: 8px;
+      }
+      #ua-custom:focus { border-color: #3366ff; }
+      #ua-custom:disabled { opacity: 0.5; }
+      #ua-current {
+        font-size: 11px;
+        color: color-mix(in srgb, CanvasText 55%, transparent);
+        word-break: break-all;
+        margin-bottom: 8px;
+      }
+      #ua-error {
+        min-height: 16px;
+        font-size: 12px;
+        color: #ff453a;
+        margin: 0 2px 6px;
+      }
+      #settings-modal .sheet { max-height: 82vh; overflow-y: auto; }
+      .set-section {
+        padding: 12px 0;
+        border-top: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+      }
+      .set-section:first-of-type { border-top: none; padding-top: 4px; }
+      .set-h {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: color-mix(in srgb, CanvasText 70%, transparent);
+        margin-bottom: 6px;
+      }
+      .set-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 6px 0;
+      }
+      .set-lbl {
+        display: block;
+        font-size: 11px;
+        margin: 8px 2px 0;
+        color: color-mix(in srgb, CanvasText 60%, transparent);
+      }
+      .set-val { font-size: 12px; font-variant-numeric: tabular-nums; min-width: 40px; }
+      .set-current { font-size: 11px; color: color-mix(in srgb, CanvasText 55%, transparent); word-break: break-all; margin: 4px 2px; }
+      .set-status { min-height: 16px; font-size: 11px; color: color-mix(in srgb, CanvasText 65%, transparent); margin-top: 6px; }
+      .set-warn { font-size: 11px; line-height: 1.4; color: color-mix(in srgb, #e0a030 80%, CanvasText); margin: 4px 0 8px; }
+      #settings-modal input[type='text'],
+      #settings-modal input[type='number'],
+      #settings-modal input[type='email'] {
+        flex: 1;
+        min-width: 0;
+        box-sizing: border-box;
+        height: 32px;
+        padding: 0 10px;
+        border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 12px;
+        outline: none;
+      }
+      #fb-message {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font: inherit;
+        font-size: 12px;
+        resize: vertical;
+        outline: none;
+        margin-bottom: 8px;
+      }
+      #fb-message:focus, #settings-modal input[type='email']:focus { border-color: #3366ff; }
+      #ag-mcpurl, #ag-token { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      #ag-port { flex: 0 0 90px; }
+      #ap-timeout { flex: 1; }
+      #settings-modal .set-row .recbtn { flex: 0 0 auto; height: 32px; }
+      .recbtn.primary { background: #3366ff; color: #fff; border-color: #3366ff; }
+      #privacy-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        cursor: pointer;
+        user-select: none;
+      }
+      #privacy-label.on { color: #30d158; font-weight: 600; }
+      #mg-error {
+        min-height: 16px;
+        margin: 8px 2px 0;
+        font-size: 11px;
+        color: #ff453a;
+      }
+      #cm-create { background: #3366ff; color: #fff; }
+      #cm-cancel { background: color-mix(in srgb, CanvasText 12%, transparent); color: CanvasText; }
+      #ed-cancel,
+      #rc-close,
+      #mg-close { background: color-mix(in srgb, CanvasText 12%, transparent); color: CanvasText; }
+
+      /* recipe editor */
+      #ed-name,
+      #ed-desc {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px 10px;
+        margin-bottom: 8px;
+        border: 1px solid color-mix(in srgb, CanvasText 30%, transparent);
+        border-radius: 8px;
+        background: color-mix(in srgb, CanvasText 6%, transparent);
+        color: CanvasText;
+        font-size: 13px;
+        font-family: inherit;
+        outline: none;
+        resize: vertical;
+      }
+      #ed-name:focus,
+      #ed-desc:focus { border-color: #3366ff; }
+      #ed-steps {
+        max-height: 300px;
+        overflow: auto;
+        margin-top: 2px;
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+      }
+      #ed-steps:empty::after {
+        content: 'No steps captured.';
+        display: block;
+        padding: 12px;
+        font-size: 12px;
+        color: color-mix(in srgb, CanvasText 45%, transparent);
+      }
+      .ed-step {
+        padding: 8px 10px;
+        border-bottom: 1px solid color-mix(in srgb, CanvasText 10%, transparent);
+      }
+      .ed-step:last-child { border-bottom: none; }
+      .ed-step-head {
+        display: flex;
+        gap: 8px;
+        align-items: baseline;
+        margin-bottom: 5px;
+      }
+      .ed-step-num {
+        font-size: 11px;
+        font-weight: 700;
+        color: color-mix(in srgb, CanvasText 45%, transparent);
+      }
+      .ed-step-action {
+        font-size: 12px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: color-mix(in srgb, CanvasText 75%, transparent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .ed-step input {
+        width: 100%;
+        box-sizing: border-box;
+        height: 26px;
+        padding: 0 8px;
+        margin-top: 4px;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+        border-radius: 6px;
+        background: color-mix(in srgb, CanvasText 5%, transparent);
+        color: CanvasText;
+        font-size: 12px;
+        outline: none;
+      }
+      .ed-step input:focus { border-color: #3366ff; }
+      .rc-desc {
+        flex-basis: 100%;
+        font-size: 11px;
+        color: color-mix(in srgb, CanvasText 50%, transparent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #rc-error,
+      #ed-error {
+        min-height: 16px;
+        margin: 8px 2px 0;
+        font-size: 11px;
+        color: #ff453a;
+      }
+      #recipes-btn.on { color: #3366ff; }
+      .rc-domain-head {
+        position: sticky;
+        top: 0;
+        padding: 6px 10px;
+        background: color-mix(in srgb, CanvasText 8%, Canvas);
+        border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent);
+        font-size: 11px;
+        font-weight: 700;
+        color: color-mix(in srgb, CanvasText 60%, transparent);
+      }
+      .rc-domain-head.current { color: #3366ff; }
+      #rc-list {
+        max-height: 340px;
+        overflow: auto;
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar tabs">
+      <div id="tabstrip"></div>
+      <button id="tab-new" class="recbtn" title="New tab">+</button>
+    </div>
+    <div class="bar">
+      <button id="back" class="nav" title="Back" disabled>‹</button>
+      <button id="forward" class="nav" title="Forward" disabled>›</button>
+      <button id="reload" class="nav" title="Reload">⟳</button>
+      <input id="addr" type="text" placeholder="Search or enter address" spellcheck="false" />
+      <div class="ai">
+        <span id="ai-indicator" class="mode-blocked" title="AI permission for this tab">AI Off</span>
+        <select id="mode" title="Grant AI access to this tab">
+          <option value="blocked">Off</option>
+          <option value="read">Read</option>
+          <option value="inspect">Inspect</option>
+          <option value="act">Assist</option>
+          <option value="develop">Developer</option>
+        </select>
+        <button id="stop-ai" title="Instantly revoke AI access" disabled>Stop AI</button>
+        <button id="real-input" class="recbtn" title="Drive click/fill with real (trusted) input on this tab instead of synthesized events — helps on sites that reject synthetic clicks. Off resets on Stop AI.">Real input</button>
+        <button id="auto-actions" class="recbtn" title="Auto-approve click/fill (no prompt) for this tab">Auto·act</button>
+        <button id="auto-runjs" class="recbtn" title="Auto-approve run_js (no prompt) for this tab — risky">Auto·js</button>
+        <button id="activity-btn" class="recbtn" title="Show the AI activity log">Activity</button>
+        <button id="downloads-btn" class="recbtn" title="Downloads (saved to this container’s folder)">⬇ Downloads</button>
+      </div>
+    </div>
+
+    <div class="bar rec">
+      <select id="container" title="Isolated session container (separate cookies/logins)"></select>
+      <button id="container-new" class="recbtn" title="Create + switch to a new isolated container">+ New</button>
+      <button id="container-manage" class="recbtn" title="Rename or delete containers">Manage</button>
+      <span id="recorder-group">
+        <span class="rec-divider"></span>
+        <button id="record" class="recbtn" title="Record your actions on this site">● Record</button>
+        <button id="rec-clear" class="recbtn" title="Discard the current recording" disabled>Clear</button>
+        <button id="rec-save" class="recbtn" title="Name, describe & save this recording" disabled>Save…</button>
+        <button id="recipes-btn" class="recbtn" title="Saved recipes for this site">Recipes</button>
+        <span id="rec-status"></span>
+      </span>
+      <span class="rec-divider"></span>
+      <label id="privacy-label" title="Redact your sensitive text (name, address…) on every page — best-effort"><input type="checkbox" id="privacy-toggle" /> 🛡 Filter</label>
+      <button id="privacy-manage" class="recbtn" title="Manage redaction rules">Rules…</button>
+      <button id="settings-btn" class="recbtn" title="Settings — User-Agent, approvals, agent connection"><span class="gear">⚙</span> Settings</button>
+    </div>
+
+    <div id="activity">
+      <div class="activity-head">
+        <strong>AI Activity</strong>
+        <span class="act-spacer"></span>
+        <button id="act-filter-tab" class="filt active">This tab</button>
+        <button id="act-filter-all" class="filt">All tabs</button>
+        <button id="activity-close" class="filt" title="Close">✕</button>
+      </div>
+      <div id="activity-list"></div>
+    </div>
+
+    <div id="approval">
+      <div class="risk" id="approval-risk">High risk</div>
+      <div class="ap-body">
+        <div id="approval-summary"></div>
+        <div id="approval-tab"></div>
+        <pre id="approval-detail"></pre>
+        <div id="approval-preview"><img id="approval-preview-img" alt="action preview"><span id="approval-crosshair"></span></div>
+      </div>
+      <div class="actions">
+        <button id="reject">Reject</button>
+        <button id="approve">Approve</button>
+      </div>
+    </div>
+
+    <div id="container-modal">
+      <div class="sheet">
+        <h2>New container</h2>
+        <p>An isolated session with its own cookies &amp; logins.</p>
+        <input id="cm-name" type="text" placeholder="e.g. Client A, Personal" spellcheck="false" maxlength="40" />
+        <div id="cm-error"></div>
+        <div class="actions">
+          <button id="cm-cancel">Cancel</button>
+          <button id="cm-create">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="manage-modal">
+      <div class="sheet">
+        <h2>Containers</h2>
+        <p>Rename or delete isolated sessions. Deleting wipes that container’s cookies &amp; logins.</p>
+        <div id="mg-list"></div>
+        <div id="mg-error"></div>
+        <div class="actions">
+          <button id="mg-close">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="recipe-modal">
+      <div class="sheet wide">
+        <h2 id="rc-title">Recipes</h2>
+        <p id="rc-sub">Saved tutorials for this site — replay them, or hand them to your agent as a how-to.</p>
+        <div id="rc-list"></div>
+        <div id="rc-error"></div>
+        <div class="actions">
+          <button id="rc-close">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="editor-modal">
+      <div class="sheet wide">
+        <h2 id="ed-title">Save recipe</h2>
+        <p>Name and describe this tutorial, then annotate each step so it reads as a how-to.</p>
+        <input id="ed-name" type="text" placeholder="Recipe name — e.g. Post a tweet" spellcheck="false" maxlength="100" />
+        <textarea id="ed-desc" placeholder="What does this tutorial accomplish? (optional)" rows="2" maxlength="2000"></textarea>
+        <div id="ed-steps"></div>
+        <div id="ed-error"></div>
+        <div class="actions">
+          <button id="ed-cancel">Cancel</button>
+          <button id="ed-save">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="downloads-modal">
+      <div class="sheet wide">
+        <h2>Downloads</h2>
+        <p>Saved to this container’s folder under <code>~/Downloads/SafeCoBrowser</code>. Your agent never sees these files.</p>
+        <div id="dl-list"></div>
+        <div class="actions">
+          <button id="dl-clear">Clear finished</button>
+          <button id="dl-close">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="privacy-modal">
+      <div class="sheet wide">
+        <h2>Privacy filter</h2>
+        <p>Replace your sensitive text everywhere it appears — your screen, screenshots, and what the agent reads. Best-effort, literal &amp; case-insensitive (won’t catch reformatted or split text). Not a security boundary — that’s the per-tab AI block.</p>
+        <label class="pv-enable"><input type="checkbox" id="pv-enabled" /> Filter enabled</label>
+        <div id="pv-list"></div>
+        <div class="pv-add">
+          <input id="pv-match" type="text" placeholder="Text to hide — e.g. SafeCoBrowser" spellcheck="false" maxlength="200" />
+          <input id="pv-replace" type="text" placeholder="Show as (e.g. [Name])" spellcheck="false" maxlength="60" />
+          <button id="pv-add">Add</button>
+        </div>
+        <div id="pv-error"></div>
+        <div class="actions">
+          <button id="pv-close">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settings-modal">
+      <div class="sheet wide">
+        <h2>Settings</h2>
+
+        <div class="set-section">
+          <div class="set-h">User-Agent</div>
+          <p>How SafeCoBrowser identifies itself to websites. Applies to every tab and container; open tabs reload when you change it.</p>
+          <div id="ua-list"></div>
+          <input id="ua-custom" type="text" placeholder="Custom User-Agent string" spellcheck="false" maxlength="512" disabled />
+          <div id="ua-error"></div>
+          <div class="set-current"><span>In use:</span> <span id="ua-current"></span></div>
+          <div class="set-row">
+            <button id="ua-reset" class="recbtn">Reset to default</button>
+            <button id="ua-apply" class="recbtn primary">Apply custom</button>
+          </div>
+        </div>
+
+        <div class="set-section">
+          <div class="set-h">Approvals</div>
+          <p>How long an approval card waits before it auto-<b>denies</b> (fail-closed). 5–600s.</p>
+          <div class="set-row">
+            <input id="ap-timeout" type="range" min="5" max="600" step="5" />
+            <span id="ap-timeout-val" class="set-val">120s</span>
+          </div>
+        </div>
+
+        <div class="set-section">
+          <div class="set-h">Agent tab control</div>
+          <p>Let your agent see all open tabs (<code>list_tabs</code>) and bring any of them to the front (<code>switch_tab</code>). Switching never changes a tab's AI mode — a tab that's Off still shows the agent nothing. Off → the agent sees only the active tab.</p>
+          <label class="pv-enable"><input type="checkbox" id="tab-control" /> Allow the agent to list &amp; switch tabs</label>
+        </div>
+
+        <div class="set-section">
+          <div class="set-h">Agent connection</div>
+          <p>Point Claude Code / Codex at this local endpoint. The token authenticates your agent — keep it private.</p>
+          <label class="set-lbl">MCP endpoint</label>
+          <div class="set-row">
+            <input id="ag-mcpurl" type="text" readonly spellcheck="false" />
+            <button id="ag-copy-url" class="recbtn">Copy</button>
+          </div>
+          <label class="set-lbl">Bearer token</label>
+          <div class="set-row">
+            <input id="ag-token" type="text" readonly spellcheck="false" />
+            <button id="ag-reveal" class="recbtn">Reveal</button>
+            <button id="ag-regen" class="recbtn">Regenerate</button>
+          </div>
+          <label class="set-lbl">Port</label>
+          <div class="set-row">
+            <input id="ag-port" type="number" min="1" max="65535" />
+            <button id="ag-port-apply" class="recbtn">Apply</button>
+            <button id="ag-copy-cmd" class="recbtn primary">Copy connect command</button>
+          </div>
+          <label class="pv-enable"><input type="checkbox" id="ag-lan" /> Allow LAN connections (remote PC)</label>
+          <p class="set-warn">⚠ Opens the port to your local network so another computer can drive this browser. The connection is <b>plaintext</b> — only turn this on for a network you trust. For the internet, keep this off and use an SSH or Tailscale tunnel instead. The bearer token and per-tab AI block still apply.</p>
+          <div id="ag-lan-row" class="set-row" style="display:none">
+            <input id="ag-lanurl" type="text" readonly spellcheck="false" />
+            <button id="ag-copy-lanurl" class="recbtn">Copy</button>
+          </div>
+          <div id="ag-status" class="set-status"></div>
+        </div>
+
+        <div class="set-section">
+          <div class="set-h">Send feedback</div>
+          <p>Tell us what works and what doesn't — including opinions from your AI agent. Goes to the FlowStations team. No page content is sent.</p>
+          <textarea id="fb-message" rows="4" placeholder="Your feedback or your agent's opinion…" maxlength="5000"></textarea>
+          <div class="set-row">
+            <input id="fb-email" type="email" placeholder="Email (optional, for a reply)" maxlength="200" />
+            <button id="fb-send" class="recbtn primary">Send</button>
+          </div>
+          <div id="fb-status" class="set-status"></div>
+        </div>
+
+        <div class="actions">
+          <button id="set-close">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="./renderer.js"></script>
+  </body>
+</html>
