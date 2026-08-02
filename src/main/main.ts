@@ -33,6 +33,7 @@ import { ContainerManager, DEFAULT_CONTAINER } from '../container/containers';
 import { DownloadManager } from './downloads';
 import { PrivacyFilter } from '../privacy/filter';
 import { SettingsStore } from '../settings/settings';
+import { plainChromiumUa } from '../settings/user-agent';
 import { TabModel } from '../tabs/tab-model';
 import { saveTabs, loadTabs } from '../tabs/tab-store';
 import * as fs from 'node:fs';
@@ -711,7 +712,9 @@ function createWindow(): void {
 
   // Capture the built-in UA once (before any override) so "Default" can restore it, then apply
   // the saved override as the fallback so restored tabs load with the right UA from the start.
-  if (!defaultUserAgent) defaultUserAgent = app.userAgentFallback;
+  // Strip the Electron/<ver> and app-name tokens so the captured default presents as the plain
+  // Chromium it actually is, even when no user ever sets a custom UA.
+  if (!defaultUserAgent) defaultUserAgent = plainChromiumUa(app.userAgentFallback, app.getName());
   applyUserAgent(false);
 
   restoreTabsOrDefault(); // re-open last session's tabs, or one default tab
