@@ -62,6 +62,9 @@ function fakeInspect(): InspectController & { selectors: string[] } {
     async network() {
       return [];
     },
+    async networkBody() {
+      return [];
+    },
   };
 }
 

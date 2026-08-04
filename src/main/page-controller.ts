@@ -2,7 +2,7 @@ import type { WebContents } from 'electron';
 import { PageController, PageExtract, Screenshot } from '../tools/read';
 import { DevController } from '../tools/dev';
 import { ActController, ClickResult, FillResult, SubmitResult, Liveness } from '../tools/act';
-import { InspectController, ElementInfo, ConsoleMessage, NetworkEntry } from '../tools/inspect';
+import { InspectController, ElementInfo, ConsoleMessage, NetworkEntry, NetworkBodyEntry } from '../tools/inspect';
 import { LocateController, LocateResult, LocateMatch } from '../tools/locate';
 import { ScrollToController, ScrollToResult } from '../tools/scroll-to';
 import { CoordinateController, CoordPreviewer, CoordResult } from '../tools/coordinate';
@@ -62,6 +62,65 @@ const EXTRACT_JS = `(() => {
     text: (a.textContent || '').trim().slice(0, 200),
   }));
   return { url: location.href, title: document.title, text: text.slice(0, 200000), links };
+})()`;
+
+// Injected into the page's MAIN world at each load to record XHR/fetch response BODIES (text/JSON
+// only, capped) into a per-document ring buffer that `read_network_body` pulls. Idempotent per
+// document. Runs page-side because only the main world sees the page's real fetch/XHR; it captures
+// continuously, but the broker still gates reads by mode/epoch and main.ts clears this buffer on
+// every AI grant so the agent never sees blind-period bodies (no retroactive leak).
+const NET_CAPTURE_JS = `(() => {
+  if (window.__scbNetInstalled) return; window.__scbNetInstalled = true;
+  window.__scbNet = window.__scbNet || [];
+  var MAX_BODY = 64 * 1024, MAX_ENTRIES = 50;
+  var TEXTUAL = /json|text|javascript|xml|x-www-form-urlencoded/i;
+  function push(method, url, status, ct, body) {
+    try {
+      if (typeof body !== 'string') return;
+      var truncated = body.length > MAX_BODY;
+      window.__scbNet.push({
+        method: String(method || 'GET').toUpperCase(), url: String(url || ''),
+        status: status || 0, contentType: String(ct || '').slice(0, 120),
+        body: body.slice(0, MAX_BODY), truncated: truncated, ts: Date.now(),
+      });
+      if (window.__scbNet.length > MAX_ENTRIES) window.__scbNet.splice(0, window.__scbNet.length - MAX_ENTRIES);
+    } catch (e) {}
+  }
+  var of = window.fetch;
+  if (typeof of === 'function') {
+    window.fetch = function () {
+      var args = arguments;
+      var req = args[0], init = args[1] || {};
+      var url = (req && typeof req === 'object' && 'url' in req) ? req.url : String(req || '');
+      var method = (init && init.method) || (req && typeof req === 'object' && req.method) || 'GET';
+      var p = of.apply(this, args);
+      try {
+        p.then(function (res) {
+          try {
+            var ct = res.headers && res.headers.get ? (res.headers.get('content-type') || '') : '';
+            if (TEXTUAL.test(ct)) res.clone().text().then(function (b) { push(method, url, res.status, ct, b); }).catch(function () {});
+          } catch (e) {}
+        }).catch(function () {});
+      } catch (e) {}
+      return p;
+    };
+  }
+  var oopen = XMLHttpRequest.prototype.open, osend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open = function (m, u) { this.__scbM = m; this.__scbU = u; return oopen.apply(this, arguments); };
+  XMLHttpRequest.prototype.send = function () {
+    var xhr = this;
+    try {
+      xhr.addEventListener('load', function () {
+        try {
+          var ct = xhr.getResponseHeader ? (xhr.getResponseHeader('content-type') || '') : '';
+          var rt = xhr.responseType;
+          if (rt === '' || rt === 'text') { if (TEXTUAL.test(ct)) push(xhr.__scbM, xhr.__scbU, xhr.status, ct, xhr.responseText); }
+          else if (rt === 'json') { push(xhr.__scbM, xhr.__scbU, xhr.status, ct || 'application/json', JSON.stringify(xhr.response)); }
+        } catch (e) {}
+      });
+    } catch (e) {}
+    return osend.apply(this, arguments);
+  };
 })()`;
 
 /** Electron implementation of all brokered page controllers (Read/Inspect/Act/Develop). */
@@ -129,6 +188,12 @@ export class ElectronPageController
         ts: Date.now(),
       });
     });
+
+    // Install the main-world XHR/fetch body recorder on every document load (idempotent per doc).
+    const install = (): void => {
+      if (!wc.isDestroyed()) void wc.executeJavaScript(NET_CAPTURE_JS, false).catch(() => {});
+    };
+    wc.on('dom-ready', install);
   }
 
   /** Drop a tab's buffers when it's closed (no live listeners remain on a destroyed wc). */
@@ -697,6 +762,22 @@ export class ElectronPageController
 
   async network(tabId: string, limit: number): Promise<NetworkEntry[]> {
     return (this.networkBuf.get(tabId) ?? []).slice(-limit);
+  }
+
+  /** Pull recent captured XHR/fetch bodies from the page's main-world ring buffer. */
+  async networkBody(tabId: string, limit: number): Promise<NetworkBodyEntry[]> {
+    const wc = this.resolve(tabId);
+    if (!wc || wc.isDestroyed()) return [];
+    const n = Math.max(1, Math.min(Math.floor(limit) || 1, 50));
+    const js = `Array.isArray(window.__scbNet) ? window.__scbNet.slice(-${n}) : []`;
+    const raw = (await wc.executeJavaScript(js, false).catch(() => [])) as unknown;
+    return Array.isArray(raw) ? (raw as NetworkBodyEntry[]) : [];
+  }
+
+  /** Clear the page's captured-body buffer — called on every AI grant so no blind-period body leaks. */
+  clearNetworkBody(tabId: string): void {
+    const wc = this.resolve(tabId);
+    if (wc && !wc.isDestroyed()) void wc.executeJavaScript('window.__scbNet = []', false).catch(() => {});
   }
 
   // --- Developer tier ---

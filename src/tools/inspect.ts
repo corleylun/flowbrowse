@@ -20,12 +20,23 @@ export interface NetworkEntry {
   status?: number;
   ts: number;
 }
+export interface NetworkBodyEntry {
+  method: string;
+  url: string;
+  status: number;
+  contentType: string;
+  /** Text/JSON response body, truncated to ~64KB (see `truncated`). */
+  body: string;
+  truncated: boolean;
+  ts: number;
+}
 
 /** Brokered Inspect-tier introspection (read-only; no approval). Electron-free interface. */
 export interface InspectController {
   inspect(tabId: string, selector: string): Promise<ElementInfo>;
   console(tabId: string, limit: number): Promise<ConsoleMessage[]>;
   network(tabId: string, limit: number): Promise<NetworkEntry[]>;
+  networkBody(tabId: string, limit: number): Promise<NetworkBodyEntry[]>;
 }
 
 const selectorSchema: Parser<{ selector: string }> = {
@@ -84,5 +95,18 @@ export function createInspectTools(inspect: InspectController): Tool[] {
     handler: (input, ctx) => inspect.network(ctx.tabId, input.limit),
   };
 
-  return [inspectElement, readConsole, readNetwork];
+  const readNetworkBody: Tool<{ limit: number }, NetworkBodyEntry[]> = {
+    name: 'read_network_body',
+    description:
+      'Read recent XHR/fetch responses WITH their bodies (method, URL, status, contentType, body). ' +
+      'Text/JSON only; each body truncated to ~64KB. Only captures responses received since AI was ' +
+      'granted on this tab (bodies from the blind period are cleared on every grant).',
+    minMode: Mode.Inspect,
+    risk: RiskLevel.Low,
+    requiresApproval: false,
+    inputSchema: limitSchema,
+    handler: (input, ctx) => inspect.networkBody(ctx.tabId, input.limit),
+  };
+
+  return [inspectElement, readConsole, readNetwork, readNetworkBody];
 }

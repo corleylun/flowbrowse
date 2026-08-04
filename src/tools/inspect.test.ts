@@ -8,6 +8,7 @@ import {
   ElementInfo,
   ConsoleMessage,
   NetworkEntry,
+  NetworkBodyEntry,
 } from './inspect';
 
 function fakeInspect(): InspectController {
@@ -25,6 +26,19 @@ function fakeInspect(): InspectController {
     async network(_tab, limit): Promise<NetworkEntry[]> {
       return [{ method: 'GET', url: 'https://x', status: 200, ts: 1 }].slice(-limit);
     },
+    async networkBody(_tab, limit): Promise<NetworkBodyEntry[]> {
+      return [
+        {
+          method: 'GET',
+          url: 'https://x/api/feed',
+          status: 200,
+          contentType: 'application/json',
+          body: '{"ok":true}',
+          truncated: false,
+          ts: 1,
+        },
+      ].slice(-limit);
+    },
   };
 }
 
@@ -37,7 +51,7 @@ function setup() {
 test('inspect tools are denied below Inspect mode', async () => {
   const core = setup();
   core.sessions.setMode('main', Mode.Read); // Read < Inspect
-  for (const name of ['inspect_element', 'read_console', 'read_network']) {
+  for (const name of ['inspect_element', 'read_console', 'read_network', 'read_network_body']) {
     const input = name === 'inspect_element' ? { selector: '#x' } : {};
     const r = await core.broker.invoke('main', name, input);
     assert.equal(r.reason, 'permission_denied', name);
@@ -61,6 +75,10 @@ test('read_console / read_network return buffered entries (no approval needed)',
   const n = await core.broker.invoke<NetworkEntry[]>('main', 'read_network', { limit: 1 });
   assert.equal(n.ok, true);
   assert.equal(n.output?.[0].url, 'https://x');
+  const b = await core.broker.invoke<NetworkBodyEntry[]>('main', 'read_network_body', { limit: 1 });
+  assert.equal(b.ok, true);
+  assert.equal(b.output?.[0].body, '{"ok":true}');
+  assert.equal(b.output?.[0].contentType, 'application/json');
 });
 
 test('inspect_element requires a selector; read_* reject bad limits', async () => {

@@ -17,6 +17,7 @@ function spyActions() {
     back: rec('back'),
     forward: rec('forward'),
     reload: rec('reload'),
+    inspectElement: rec('inspectElement'),
     canGoBack: true,
     canGoForward: false,
     pageUrl: 'https://example.com/page',
@@ -63,7 +64,15 @@ function tokens(over: Partial<ContextMenuParams>, a: MenuActions): string[] {
 
 test('plain page → just navigation + page URL', () => {
   const { a } = spyActions();
-  assert.deepEqual(tokens({}, a), ['Back', 'Forward', 'Reload', '---', 'Copy Page URL']);
+  assert.deepEqual(tokens({}, a), [
+    'Back',
+    'Forward',
+    'Reload',
+    '---',
+    'Copy Page URL',
+    '---',
+    'Inspect element',
+  ]);
 });
 
 test('http image → save/copy/address/open', () => {
@@ -134,6 +143,8 @@ test('click wiring routes to the right actions', () => {
   assert.deepEqual(calls.openInNewTab, ['https://x.com/a.png']);
   click('Copy Page URL');
   assert.deepEqual(calls.copyText, ['https://example.com/page']);
+  click('Inspect element');
+  assert.deepEqual(calls.inspectElement, [12, 34]); // forwards the clicked coords
 });
 
 // --- chrome UI menu (URL bar / Settings / feedback): clipboard + spellcheck only ---

@@ -11,7 +11,10 @@ import type { ContextMenuParams, MenuItemConstructorOptions } from 'electron';
  *    `blob:`/`data:` (the blob lives in the renderer), so we don't offer a no-op item.
  *  - Open in New Tab only appears for http(s) and goes through `openInNewTab` (the same-container
  *    popup path), never an OS window.
- *  - There is deliberately **no DevTools / Inspect item** on a page webContents.
+ *  - **Inspect element** opens the real Chrome DevTools (Elements/Console/Network) for THIS tab.
+ *    It is a human-only debugging affordance — DevTools attaches no `webContents.debugger`, so it
+ *    never collides with the agent's CDP-free inspect/console/network tools, and it grants the
+ *    agent nothing (the agent can't reach or observe this menu).
  *  - A saved image is raw network bytes — the DOM privacy filter does NOT redact it (saving is a
  *    user action on their own disk, not an agent capability).
  */
@@ -27,6 +30,8 @@ export interface MenuActions {
   back: () => void;
   forward: () => void;
   reload: () => void;
+  /** Open DevTools focused on the element under the cursor (wc.inspectElement). */
+  inspectElement: (x: number, y: number) => void;
   canGoBack: boolean;
   canGoForward: boolean;
   pageUrl: string;
@@ -108,6 +113,10 @@ export function contextMenuTemplate(params: ContextMenuParams, a: MenuActions): 
   t.push({ label: 'Reload', click: a.reload });
   sep();
   t.push({ label: 'Copy Page URL', click: () => a.copyText(a.pageUrl) });
+
+  // Human debugging: open the real DevTools at the clicked node (Elements/Console/Network).
+  sep();
+  t.push({ label: 'Inspect element', click: () => a.inspectElement(params.x, params.y) });
 
   return t;
 }
