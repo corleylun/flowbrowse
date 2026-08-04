@@ -19,6 +19,11 @@ export interface AiState {
   epoch: number;
 }
 
+export interface Suggestion {
+  url: string;
+  title: string;
+}
+
 export interface ApprovalPreviewData {
   image: string; // base64 PNG
   w: number;
@@ -144,9 +149,13 @@ export interface DownloadRecord {
 contextBridge.exposeInMainWorld('safecobrowser', {
   // Navigation
   go: (url: string): Promise<void> => ipcRenderer.invoke('nav:go', url),
+  suggest: (query: string): Promise<Suggestion[]> => ipcRenderer.invoke('nav:suggest', query),
+  historyCount: (): Promise<number> => ipcRenderer.invoke('history:count'),
+  clearHistory: (): Promise<number> => ipcRenderer.invoke('history:clear'),
   back: (): Promise<void> => ipcRenderer.invoke('nav:back'),
   forward: (): Promise<void> => ipcRenderer.invoke('nav:forward'),
   reload: (): Promise<void> => ipcRenderer.invoke('nav:reload'),
+  toggleDevTools: (): Promise<void> => ipcRenderer.invoke('devtools:toggle'),
   onPageState: (cb: (state: PageState) => void): void => {
     ipcRenderer.on('page:state', (_e, state: PageState) => cb(state));
   },
@@ -272,6 +281,7 @@ contextBridge.exposeInMainWorld('safecobrowser', {
   },
   setActivityOpen: (open: boolean): Promise<void> => ipcRenderer.invoke('ui:activity', open),
   setModalOpen: (open: boolean): Promise<void> => ipcRenderer.invoke('ui:modal', open),
+  setSuggestOpen: (open: boolean): Promise<void> => ipcRenderer.invoke('ui:suggest', open),
 
   // Per-tab auto-approve.
   getAutoApprove: (): Promise<AutoApproveState> => ipcRenderer.invoke('ui:get-auto-approve'),

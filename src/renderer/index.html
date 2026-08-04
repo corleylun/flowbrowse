@@ -112,8 +112,14 @@
         opacity: 0.3;
         cursor: default;
       }
+      .addr-wrap {
+        flex: 1;
+        position: relative;
+        display: flex;
+      }
       #addr {
         flex: 1;
+        width: 100%;
         height: 36px;
         padding: 0 14px;
         border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
@@ -125,6 +131,55 @@
       }
       #addr:focus {
         border-color: #3366ff;
+      }
+      /* URL-bar autocomplete dropdown — overlays the page (the chrome view grows while it's open). */
+      .suggest-list {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 50;
+        max-height: 300px;
+        overflow-y: auto;
+        background: Canvas;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        border-radius: 12px;
+        box-shadow: 0 8px 28px color-mix(in srgb, CanvasText 22%, transparent);
+        padding: 4px;
+      }
+      .suggest-list[hidden] {
+        display: none;
+      }
+      .suggest-item {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        padding: 6px 10px;
+        border-radius: 8px;
+        cursor: pointer;
+        overflow: hidden;
+      }
+      .suggest-item.active,
+      .suggest-item:hover {
+        background: color-mix(in srgb, #3366ff 14%, transparent);
+      }
+      .suggest-item .s-title {
+        font-size: 13px;
+        color: CanvasText;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .suggest-item .s-url {
+        font-size: 12px;
+        color: color-mix(in srgb, CanvasText 55%, transparent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .suggest-item .s-url b {
+        color: #3366ff;
+        font-weight: 600;
       }
       .ai {
         display: flex;
@@ -922,7 +977,10 @@
       <button id="back" class="nav" title="Back" disabled>‹</button>
       <button id="forward" class="nav" title="Forward" disabled>›</button>
       <button id="reload" class="nav" title="Reload">⟳</button>
-      <input id="addr" type="text" placeholder="Search or enter address" spellcheck="false" />
+      <div class="addr-wrap">
+        <input id="addr" type="text" placeholder="Search or enter address" spellcheck="false" autocomplete="off" />
+        <div id="addr-suggest" class="suggest-list" role="listbox" hidden></div>
+      </div>
       <div class="ai">
         <span id="ai-indicator" class="mode-blocked" title="AI permission for this tab">AI Off</span>
         <select id="mode" title="Grant AI access to this tab">
@@ -956,6 +1014,7 @@
       <span class="rec-divider"></span>
       <label id="privacy-label" title="Redact your sensitive text (name, address…) on every page — best-effort"><input type="checkbox" id="privacy-toggle" /> 🛡 Filter</label>
       <button id="privacy-manage" class="recbtn" title="Manage redaction rules">Rules…</button>
+      <button id="devtools-btn" class="recbtn" title="Open browser DevTools (Elements · Console · Network) for this tab">⧉ DevTools</button>
       <button id="settings-btn" class="recbtn" title="Settings — User-Agent, approvals, agent connection"><span class="gear">⚙</span> Settings</button>
     </div>
 
@@ -1089,6 +1148,15 @@
           <div class="set-row">
             <input id="ap-timeout" type="range" min="5" max="600" step="5" />
             <span id="ap-timeout-val" class="set-val">120s</span>
+          </div>
+        </div>
+
+        <div class="set-section">
+          <div class="set-h">Browsing history</div>
+          <p>Powers URL-bar autocomplete. Stored locally on this machine and <b>never shown to the agent</b>. Clearing removes every saved page and can't be undone.</p>
+          <div class="set-current"><span>Saved pages:</span> <span id="history-count">0</span></div>
+          <div class="set-row">
+            <button id="history-clear" class="recbtn">Clear history</button>
           </div>
         </div>
 

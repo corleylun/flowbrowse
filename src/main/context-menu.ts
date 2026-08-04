@@ -25,6 +25,7 @@ export function attachPageContextMenu(wc: WebContents, openInNewTab: (url: strin
       back: () => wc.navigationHistory.goBack(),
       forward: () => wc.navigationHistory.goForward(),
       reload: () => wc.reload(),
+      inspectElement: (x, y) => wc.inspectElement(x, y),
       canGoBack: wc.navigationHistory.canGoBack(),
       canGoForward: wc.navigationHistory.canGoForward(),
       pageUrl: wc.getURL(),

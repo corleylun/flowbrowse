@@ -31,6 +31,7 @@ import { domainForUrl } from '../recorder/domain';
 import { RecordedAction } from '../recorder/actions';
 import { ContainerManager, DEFAULT_CONTAINER } from '../container/containers';
 import { DownloadManager } from './downloads';
+import { HistoryStore } from './history';
 import { PrivacyFilter } from '../privacy/filter';
 import { SettingsStore } from '../settings/settings';
 import { plainChromiumUa } from '../settings/user-agent';
@@ -112,6 +113,7 @@ let baseWindow: BaseWindow | null = null;
 let chromeView: WebContentsView | null = null;
 let approvalPending = false;
 let activityOpen = false; // when true, the chrome view grows to show the Activity log panel
+let suggestOpen = false; // when true, the chrome view grows so the URL-bar autocomplete list shows over the page
 let modalOpen = false; // when true, the chrome view fills the window so a centered modal can overlay the page
 let restoring = false; // true while restoring tabs on startup (suppresses persistence)
 
@@ -180,6 +182,10 @@ const downloads = new DownloadManager(
 // User-defined sensitive-data redaction (best-effort). When enabled, matching text is replaced in
 // the page DOM — covering the screen, screenshots, and what the agent reads in one place.
 const privacy = new PrivacyFilter(path.join(safecobrowserDir(), 'privacy-filter.json'));
+
+// Local browsing history for URL-bar autocomplete. HUMAN-only — never exposed to the agent (no tool
+// reads it); populated from committed top-level navigations and queried by the chrome renderer.
+const history = new HistoryStore(path.join(safecobrowserDir(), 'history.json'));
 
 // The global User-Agent override is applied to every container session via app.userAgentFallback
 // (picked up by new WebContentsViews) and live-pushed to open tabs.
@@ -420,10 +426,10 @@ function layout(): void {
   const { width, height } = baseWindow.getContentBounds();
   // An approval card can hold a long message (e.g. submit_feedback text), so give it more room;
   // the card itself is bounded + internally scrolls so its buttons are never clipped.
-  const expandedH = approvalPending ? 560 : activityOpen ? 460 : 380;
+  const expandedH = approvalPending ? 560 : activityOpen ? 460 : suggestOpen ? 460 : 380;
   const chromeH = modalOpen
     ? height // full window so a centered modal can overlay the page
-    : approvalPending || activityOpen
+    : approvalPending || activityOpen || suggestOpen
       ? Math.min(expandedH, height)
       : CHROME_HEIGHT;
   activeTab()?.view.setBounds({ x: 0, y: CHROME_HEIGHT, width, height: Math.max(0, height - CHROME_HEIGHT) });
@@ -566,6 +572,14 @@ function makeTabView(id: string, containerId: string): WebContentsView {
   // Persist the tab set whenever a committed navigation changes this tab's URL.
   wc.on('did-navigate', () => persistTabs());
   wc.on('did-navigate-in-page', () => persistTabs());
+
+  // Record committed top-level navigations for URL-bar autocomplete (human-only; the agent never
+  // sees history). The title usually arrives later, so refresh it separately without re-counting.
+  wc.on('did-navigate', (_e, url) => history.record(url, wc.getTitle()));
+  wc.on('did-navigate-in-page', (_e, url, isMainFrame) => {
+    if (isMainFrame) history.record(url, wc.getTitle());
+  });
+  wc.on('page-title-updated', (_e, title) => history.touchTitle(wc.getURL(), title));
 
   // The AI grant persists across navigation; it is only cleared by Stop AI or a mode
   // change. (No cross-origin auto-revoke.)
@@ -728,6 +742,22 @@ ipcMain.handle('nav:go', (_e, rawUrl: string) => {
   tab.view.webContents.loadURL(url);
   recorder.add({ type: 'navigate', url, ts: Date.now() });
 });
+ipcMain.handle('nav:suggest', (_e, query: unknown) =>
+  history.suggest(typeof query === 'string' ? query : ''),
+);
+ipcMain.handle('history:count', () => history.count());
+ipcMain.handle('history:clear', () => {
+  history.clear();
+  return history.count();
+});
+// Toggle the real Chrome DevTools (Elements/Console/Network) for the active tab. Human-only — this
+// is not a broker tool; DevTools attaches no debugger the agent's CDP-free tools would collide with.
+ipcMain.handle('devtools:toggle', () => {
+  const wc = activeTab()?.view.webContents;
+  if (!wc || wc.isDestroyed()) return;
+  if (wc.isDevToolsOpened()) wc.closeDevTools();
+  else wc.openDevTools({ mode: 'detach' });
+});
 ipcMain.handle('nav:back', () => activeTab()?.view.webContents.navigationHistory.goBack());
 ipcMain.handle('nav:forward', () => activeTab()?.view.webContents.navigationHistory.goForward());
 ipcMain.handle('nav:reload', () => activeTab()?.view.webContents.reload());
@@ -741,6 +771,9 @@ ipcMain.handle('ai:set-mode', (_e, mode: unknown) => {
     console.warn('[safecobrowser] ignored invalid ai:set-mode value:', mode);
     return;
   }
+  // Any grant/mode change starts a fresh capture window — drop bodies recorded before it so the
+  // agent never reads XHR/fetch responses from the blind period (no retroactive leak).
+  pageController.clearNetworkBody(id);
   if (mode === Mode.Blocked) {
     core.sessions.setMode(id, mode);
     autoApproveByTab.delete(id); // dropping to Off resets auto-approve
@@ -761,6 +794,7 @@ ipcMain.handle('ai:set-mode', (_e, mode: unknown) => {
 ipcMain.handle('ai:stop', () => {
   const id = tabModel.activeId();
   core.sessions.revoke(id);
+  pageController.clearNetworkBody(id); // drop captured bodies on revoke too
   autoApproveByTab.delete(id); // Stop AI resets auto-approve
   realInputByTab.delete(id); // …and real input
   chromeView?.webContents.send('auto-approve:state', getAutoApprove(id));
@@ -800,6 +834,10 @@ ipcMain.handle('ui:activity', (_e, open: unknown) => {
 });
 ipcMain.handle('ui:modal', (_e, open: unknown) => {
   modalOpen = !!open;
+  layout();
+});
+ipcMain.handle('ui:suggest', (_e, open: unknown) => {
+  suggestOpen = !!open;
   layout();
 });
 

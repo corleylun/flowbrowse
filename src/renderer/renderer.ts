@@ -123,11 +123,21 @@ interface AuditRecord {
   detail?: string;
 }
 
+interface UrlSuggestion {
+  url: string;
+  title: string;
+}
+
 interface SafeCoBrowserApi {
   go(url: string): Promise<void>;
+  suggest(query: string): Promise<UrlSuggestion[]>;
+  setSuggestOpen(open: boolean): Promise<void>;
+  historyCount(): Promise<number>;
+  clearHistory(): Promise<number>;
   back(): Promise<void>;
   forward(): Promise<void>;
   reload(): Promise<void>;
+  toggleDevTools(): Promise<void>;
   onPageState(cb: (state: PageState) => void): void;
   setMode(mode: string): Promise<void>;
   stopAi(): Promise<void>;
@@ -249,18 +259,132 @@ const forwardBtn = el('forward') as HTMLButtonElement;
 backBtn.addEventListener('click', () => jt.back());
 forwardBtn.addEventListener('click', () => jt.forward());
 el('reload').addEventListener('click', () => jt.reload());
+el('devtools-btn').addEventListener('click', () => void jt.toggleDevTools());
 let realUrl = ''; // the true address; the bar shows a redacted version when the filter is on + unfocused
 function paintAddress(): void {
   if (document.activeElement !== addr) addr.value = redactDisplay(realUrl);
 }
+// --- URL-bar autocomplete (from local history; human-only — the agent never sees history) ---
+const suggestBox = el('addr-suggest');
+let suggestions: UrlSuggestion[] = [];
+let suggestActive = -1; // -1 = use the typed text as-is; >=0 indexes `suggestions`
+let suggestTimer: number | undefined;
+
+// Bold the matched substring using text nodes only — page titles/URLs are untrusted, never innerHTML.
+function fillHighlighted(node: HTMLElement, text: string, query: string): void {
+  node.textContent = '';
+  const q = query.trim();
+  const idx = q ? text.toLowerCase().indexOf(q.toLowerCase()) : -1;
+  if (idx < 0) {
+    node.textContent = text;
+    return;
+  }
+  node.appendChild(document.createTextNode(text.slice(0, idx)));
+  const b = document.createElement('b');
+  b.textContent = text.slice(idx, idx + q.length);
+  node.appendChild(b);
+  node.appendChild(document.createTextNode(text.slice(idx + q.length)));
+}
+
+function closeSuggest(): void {
+  if (suggestBox.hidden) return;
+  suggestBox.hidden = true;
+  suggestBox.textContent = '';
+  suggestions = [];
+  suggestActive = -1;
+  void jt.setSuggestOpen(false); // let the chrome view shrink back to the toolbar
+}
+
+function setSuggestActive(i: number): void {
+  suggestActive = i;
+  [...suggestBox.children].forEach((child, idx) => {
+    const on = idx === i;
+    (child as HTMLElement).classList.toggle('active', on);
+    if (on) (child as HTMLElement).scrollIntoView({ block: 'nearest' });
+  });
+}
+
+function renderSuggest(query: string): void {
+  suggestBox.textContent = '';
+  suggestions.forEach((s, i) => {
+    const item = document.createElement('div');
+    item.className = 'suggest-item';
+    item.setAttribute('role', 'option');
+    const title = document.createElement('div');
+    title.className = 's-title';
+    fillHighlighted(title, redactDisplay(s.title || s.url), query); // display redacted; navigate to the real URL
+    const url = document.createElement('div');
+    url.className = 's-url';
+    fillHighlighted(url, redactDisplay(s.url), query);
+    item.append(title, url);
+    item.addEventListener('mousedown', (e) => e.preventDefault()); // don't blur the input on click
+    item.addEventListener('click', () => selectSuggestion(i));
+    item.addEventListener('mouseenter', () => setSuggestActive(i));
+    suggestBox.appendChild(item);
+  });
+  suggestBox.hidden = false;
+  setSuggestActive(-1);
+  void jt.setSuggestOpen(true); // grow the chrome view so the list shows over the page
+}
+
+function selectSuggestion(i: number): void {
+  const s = suggestions[i];
+  if (!s) return;
+  closeSuggest();
+  addr.blur();
+  void jt.go(s.url); // navigate to the exact stored URL, never the redacted display text
+}
+
+async function refreshSuggest(): Promise<void> {
+  const query = addr.value;
+  if (!query.trim()) {
+    closeSuggest();
+    return;
+  }
+  const results = await jt.suggest(query);
+  // The field may have changed (or lost focus) while we awaited — only show results for the live text.
+  if (addr.value !== query || document.activeElement !== addr) return;
+  suggestions = results;
+  if (!results.length) {
+    closeSuggest();
+    return;
+  }
+  renderSuggest(query);
+}
+
+addr.addEventListener('input', () => {
+  window.clearTimeout(suggestTimer);
+  suggestTimer = window.setTimeout(() => void refreshSuggest(), 80);
+});
+
 addr.addEventListener('keydown', (e: KeyboardEvent) => {
-  if (e.key === 'Enter') jt.go(addr.value);
+  const open = !suggestBox.hidden && suggestions.length > 0;
+  if (e.key === 'ArrowDown' && open) {
+    e.preventDefault();
+    setSuggestActive((suggestActive + 1) % suggestions.length);
+  } else if (e.key === 'ArrowUp' && open) {
+    e.preventDefault();
+    setSuggestActive(suggestActive <= 0 ? suggestions.length - 1 : suggestActive - 1);
+  } else if (e.key === 'Enter') {
+    if (open && suggestActive >= 0) {
+      selectSuggestion(suggestActive);
+    } else {
+      closeSuggest();
+      jt.go(addr.value);
+    }
+  } else if (e.key === 'Escape' && open) {
+    e.preventDefault();
+    closeSuggest();
+  }
 });
 addr.addEventListener('focus', () => {
   addr.value = realUrl; // reveal the real URL so it stays editable
   addr.select();
 });
-addr.addEventListener('blur', paintAddress);
+addr.addEventListener('blur', () => {
+  closeSuggest();
+  paintAddress();
+});
 jt.onPageState((s: PageState) => {
   realUrl = s.url || '';
   paintAddress();
@@ -1330,7 +1454,38 @@ function openSettings(): void {
     agentEndpoint = ep;
     renderAgent();
   });
+  void refreshHistoryCount();
 }
+
+const historyCountEl = el('history-count');
+const historyClearBtn = el('history-clear') as HTMLButtonElement;
+let historyClearArmed = false;
+let historyClearTimer: number | undefined;
+
+// Two-click arm (matches container/recipe delete): first click asks to confirm, second click clears.
+function resetHistoryClear(): void {
+  historyClearArmed = false;
+  historyClearBtn.textContent = 'Clear history';
+  historyClearBtn.classList.remove('danger');
+  window.clearTimeout(historyClearTimer);
+}
+async function refreshHistoryCount(): Promise<void> {
+  historyCountEl.textContent = String(await jt.historyCount());
+  resetHistoryClear(); // re-opening Settings always starts disarmed
+}
+historyClearBtn.addEventListener('click', () => {
+  if (!historyClearArmed) {
+    historyClearArmed = true;
+    historyClearBtn.textContent = 'Confirm clear?';
+    historyClearBtn.classList.add('danger');
+    historyClearTimer = window.setTimeout(resetHistoryClear, 4000); // auto-disarm if ignored
+    return;
+  }
+  void jt.clearHistory().then((n) => {
+    historyCountEl.textContent = String(n);
+    resetHistoryClear();
+  });
+});
 function closeSettings(): void {
   setModal.classList.remove('show');
   void jt.setModalOpen(false);
