@@ -24,6 +24,18 @@ export interface Suggestion {
   title: string;
 }
 
+export interface FindQuery {
+  text: string;
+  forward?: boolean; // direction for a follow-up step (default true)
+  findNext?: boolean; // true = new find session (initial query); false = next/prev step
+  matchCase?: boolean;
+}
+
+export interface FindResult {
+  activeMatchOrdinal: number; // 1-based index of the current match
+  matches: number; // total match count (0 = no results)
+}
+
 export interface ApprovalPreviewData {
   image: string; // base64 PNG
   w: number;
@@ -158,6 +170,18 @@ contextBridge.exposeInMainWorld('safecobrowser', {
   toggleDevTools: (): Promise<void> => ipcRenderer.invoke('devtools:toggle'),
   onPageState: (cb: (state: PageState) => void): void => {
     ipcRenderer.on('page:state', (_e, state: PageState) => cb(state));
+  },
+
+  // Find in page (human-only Cmd+F). openFind/closeFind grow/shrink the chrome bar; findQuery
+  // runs the search on the active tab; onFindResult streams the match tally back for the counter.
+  openFind: (): Promise<void> => ipcRenderer.invoke('find:open'),
+  closeFind: (): Promise<void> => ipcRenderer.invoke('find:close'),
+  findQuery: (payload: FindQuery): Promise<void> => ipcRenderer.invoke('find:query', payload),
+  onFindResult: (cb: (r: FindResult) => void): void => {
+    ipcRenderer.on('find:result', (_e, r: FindResult) => cb(r));
+  },
+  onFindOpenRequest: (cb: () => void): void => {
+    ipcRenderer.on('find:open-request', () => cb());
   },
 
   // Per-tab AI permission control (the user is the ONLY one who can set the mode).

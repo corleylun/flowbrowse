@@ -113,7 +113,7 @@ call only if the tab's **current** mode is at least that high.
 |------|-------|----------------------|
 | **Blocked** | `blocked` | nothing — AI is off (default) |
 | **Read** | `read` | `read_page`, `screenshot`, `locate`, `list_recipes`, `get_recipe` |
-| **Inspect** | `inspect` | + `inspect_element`, `read_console`, `read_network` |
+| **Inspect** | `inspect` | + `inspect_element`, `read_console`, `read_network`, `read_network_body` |
 | **Act** (UI: *Assist*) | `act` | + `click`, `fill`, `scroll_to`, and the coordinate tools `move_to` / `click_at` / `scroll` / `press_key` / `type_text` (all behind approval) |
 | **Develop** (UI: *Developer*) | `develop` | + `run_js` (full page control) |
 
@@ -188,15 +188,28 @@ Inspect one DOM element by CSS selector. (Selector is audited.)
 - If nothing matches, `matched: false`. Use this to discover real selectors before acting.
 
 ### 5.4 `read_console` — Inspect · Low risk · no approval
-Recent console messages.
+Recent console messages, newest last.
 - **Input:** `{ limit?: number }` (default `100`, max `1000`)
-- **Output:** `[{ level, text, ts }]`
+- **Output:** `[{ level, text, ts }]` where `level` ∈ `log | info | warning | error`.
+- **Checking a page for errors:** filter the result to `level === "error"` — JS errors and uncaught exceptions surface as error-level entries. This is the first tool to reach for on a "why did this break / fail?" question.
 
 ### 5.5 `read_network` — Inspect · Low risk · no approval
 Recent network request **metadata** (not bodies).
 - **Input:** `{ limit?: number }` (default `100`, max `1000`)
 - **Output:** `[{ method, url, status?, ts }]`
 - Great for diagnosing failed submits/API calls (look for non-2xx `status`).
+
+### 5.5a `read_network_body` — Inspect · Low risk · no approval
+Recent XHR/fetch responses **with their bodies** — the response payloads `read_network` omits.
+- **Input:** `{ limit?: number }` (default `100`, max `1000`; at most the last 50 responses per page are kept)
+- **Output:** `[{ method, url, status, contentType, body, truncated, ts }]`
+- **Scope:** captures **XHR + `fetch`** responses from **any origin**, **text/JSON only** (binary/image
+  responses are skipped). Each `body` is truncated to **~64KB** (`truncated: true` when it was cut).
+- **No retroactive leak:** the capture buffer is **cleared every time the human grants a mode or hits Stop
+  AI**, so you only ever see responses that arrived **after** the current grant — never anything from while
+  the tab was blocked. If you need a specific payload, trigger the page action *after* AI is on, then read.
+- Bodies can contain tokens/PII, so they are **never written to the audit log** (only the fact you called the
+  tool is). Use it to read API payloads a feed/page fetched — e.g. the JSON behind an infinite-scroll list.
 
 ### 5.6 `click` — Act · Medium risk · **approval required**
 Click a visible element by CSS selector.
@@ -445,10 +458,12 @@ What it means for you:
   `.value`, network bodies, or storage to reconstruct it. If you genuinely need it to finish the
   task, **ask the human**; they can fill the field for you or turn the filter off.
 - **It's best-effort, not total.** Redaction covers **visible text nodes only**. It does **not**
-  redact form-field values, element attributes, URLs in `read_network` metadata, or text that's
-  reformatted/abbreviated/split across elements — so you may still encounter a real value there. If
-  you do, treat it as sensitive: use it only for the task at hand and don't echo it back into the
-  conversation or anywhere it isn't needed.
+  redact form-field values, element attributes, URLs in `read_network` metadata, **`read_network_body`
+  response payloads**, or text that's reformatted/abbreviated/split across elements — so you may still
+  encounter a real value there. If you do, treat it as sensitive: use it only for the task at hand and
+  don't echo it back into the conversation or anywhere it isn't needed. In particular, **never reach for
+  `read_network_body` to reconstruct a value the human redacted on screen** — the filter doesn't touch
+  network bodies, but the human's intent to hide it still stands.
 
 ---
 

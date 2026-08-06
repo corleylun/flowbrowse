@@ -128,6 +128,18 @@ interface UrlSuggestion {
   title: string;
 }
 
+interface FindQuery {
+  text: string;
+  forward?: boolean;
+  findNext?: boolean;
+  matchCase?: boolean;
+}
+
+interface FindResult {
+  activeMatchOrdinal: number;
+  matches: number;
+}
+
 interface SafeCoBrowserApi {
   go(url: string): Promise<void>;
   suggest(query: string): Promise<UrlSuggestion[]>;
@@ -138,6 +150,11 @@ interface SafeCoBrowserApi {
   forward(): Promise<void>;
   reload(): Promise<void>;
   toggleDevTools(): Promise<void>;
+  openFind(): Promise<void>;
+  closeFind(): Promise<void>;
+  findQuery(payload: FindQuery): Promise<void>;
+  onFindResult(cb: (r: FindResult) => void): void;
+  onFindOpenRequest(cb: () => void): void;
   onPageState(cb: (state: PageState) => void): void;
   setMode(mode: string): Promise<void>;
   stopAi(): Promise<void>;
@@ -264,6 +281,89 @@ let realUrl = ''; // the true address; the bar shows a redacted version when the
 function paintAddress(): void {
   if (document.activeElement !== addr) addr.value = redactDisplay(realUrl);
 }
+
+// --- Find in page (human-only Cmd+F; the agent has no find tool) ---
+const findBar = el('find-bar');
+const findInput = el('find-input') as HTMLInputElement;
+const findCount = el('find-count');
+let findOpenState = false;
+
+function setFindCount(r: FindResult | null): void {
+  if (!r || !findInput.value.trim()) {
+    findCount.textContent = '';
+    findInput.classList.remove('no-match');
+    return;
+  }
+  if (r.matches === 0) {
+    findCount.textContent = 'No results';
+    findInput.classList.add('no-match');
+  } else {
+    findCount.textContent = `${r.activeMatchOrdinal}/${r.matches}`;
+    findInput.classList.remove('no-match');
+  }
+}
+
+// newSession=true starts a fresh find (initial query); false steps to the next/prev match.
+function runFind(newSession: boolean, forward = true): void {
+  const text = findInput.value;
+  if (!text) {
+    setFindCount(null);
+    void jt.findQuery({ text: '' }); // clears highlights
+    return;
+  }
+  void jt.findQuery({ text, forward, findNext: newSession });
+}
+
+function openFindBar(): void {
+  findOpenState = true;
+  findBar.hidden = false;
+  void jt.openFind(); // grow the chrome bar (idempotent)
+  findInput.focus();
+  findInput.select();
+  if (findInput.value.trim()) runFind(true);
+}
+
+function closeFindBar(): void {
+  if (!findOpenState) return;
+  findOpenState = false;
+  findBar.hidden = true;
+  setFindCount(null);
+  void jt.closeFind(); // stops the find session + shrinks the chrome bar
+}
+
+findInput.addEventListener('input', () => runFind(true));
+findInput.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    runFind(false, !e.shiftKey); // Enter → next, Shift+Enter → previous
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    closeFindBar();
+  }
+});
+el('find-next').addEventListener('click', () => {
+  runFind(false, true);
+  findInput.focus();
+});
+el('find-prev').addEventListener('click', () => {
+  runFind(false, false);
+  findInput.focus();
+});
+el('find-close').addEventListener('click', () => closeFindBar());
+
+jt.onFindResult((r) => setFindCount(r));
+// Cmd+F while the PAGE view has focus is caught in the main process and relayed here.
+jt.onFindOpenRequest(() => openFindBar());
+// Cmd+F while the CHROME (toolbar) has focus is caught locally; Escape closes an open bar.
+window.addEventListener('keydown', (e: KeyboardEvent) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
+    e.preventDefault();
+    openFindBar();
+  } else if (e.key === 'Escape' && findOpenState) {
+    e.preventDefault();
+    closeFindBar();
+  }
+});
 // --- URL-bar autocomplete (from local history; human-only — the agent never sees history) ---
 const suggestBox = el('addr-suggest');
 let suggestions: UrlSuggestion[] = [];

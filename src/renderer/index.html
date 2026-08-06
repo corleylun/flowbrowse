@@ -181,6 +181,55 @@
         color: #3366ff;
         font-weight: 600;
       }
+      /* Find-in-page bar — a floating widget in the strip the chrome view grows into (FIND_BAR_H)
+         while open. Bottom-anchored so it doesn't hard-code CHROME_HEIGHT. */
+      #find-bar {
+        position: fixed;
+        bottom: 4px;
+        right: 12px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 8px;
+        background: Canvas;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        border-radius: 8px;
+        box-shadow: 0 8px 28px color-mix(in srgb, CanvasText 22%, transparent);
+        z-index: 30;
+      }
+      #find-bar[hidden] {
+        display: none;
+      }
+      #find-input {
+        width: 220px;
+        padding: 4px 8px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        border-radius: 6px;
+        background: color-mix(in srgb, CanvasText 5%, transparent);
+        color: CanvasText;
+        outline: none;
+      }
+      #find-input.no-match {
+        color: #ff453a;
+      }
+      #find-count {
+        min-width: 52px;
+        text-align: right;
+        font-size: 12px;
+        color: color-mix(in srgb, CanvasText 55%, transparent);
+      }
+      #find-bar button {
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        background: transparent;
+        color: CanvasText;
+        border-radius: 6px;
+        min-width: 26px;
+        height: 26px;
+        cursor: pointer;
+      }
+      #find-bar button:hover {
+        background: color-mix(in srgb, CanvasText 10%, transparent);
+      }
       .ai {
         display: flex;
         align-items: center;
@@ -1016,6 +1065,15 @@
       <button id="privacy-manage" class="recbtn" title="Manage redaction rules">Rules…</button>
       <button id="devtools-btn" class="recbtn" title="Open browser DevTools (Elements · Console · Network) for this tab">⧉ DevTools</button>
       <button id="settings-btn" class="recbtn" title="Settings — User-Agent, approvals, agent connection"><span class="gear">⚙</span> Settings</button>
+    </div>
+
+    <!-- Find in page (human-only Cmd+F). Floats over the page top; the agent has no find tool. -->
+    <div id="find-bar" hidden>
+      <input id="find-input" type="text" placeholder="Find in page" spellcheck="false" autocomplete="off" />
+      <span id="find-count"></span>
+      <button id="find-prev" title="Previous match (Shift+Enter)">‹</button>
+      <button id="find-next" title="Next match (Enter)">›</button>
+      <button id="find-close" title="Close (Esc)">✕</button>
     </div>
 
     <div id="activity">

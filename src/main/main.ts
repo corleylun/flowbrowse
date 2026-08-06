@@ -101,6 +101,7 @@ migrateLegacyName();
  */
 
 const CHROME_HEIGHT = 132; // three rows: tab strip, nav/address/AI, container/recorder
+const FIND_BAR_H = 46; // extra chrome height for the find-in-page bar (a thin strip below the toolbar)
 const HOME_URL = 'https://flowstations.net/safecobrowser/start';
 
 interface TabEntry {
@@ -114,6 +115,7 @@ let chromeView: WebContentsView | null = null;
 let approvalPending = false;
 let activityOpen = false; // when true, the chrome view grows to show the Activity log panel
 let suggestOpen = false; // when true, the chrome view grows so the URL-bar autocomplete list shows over the page
+let findOpen = false; // when true, the chrome view grows so the find-in-page bar overlays the page top (human-only Cmd+F)
 let modalOpen = false; // when true, the chrome view fills the window so a centered modal can overlay the page
 let restoring = false; // true while restoring tabs on startup (suppresses persistence)
 
@@ -426,10 +428,18 @@ function layout(): void {
   const { width, height } = baseWindow.getContentBounds();
   // An approval card can hold a long message (e.g. submit_feedback text), so give it more room;
   // the card itself is bounded + internally scrolls so its buttons are never clipped.
-  const expandedH = approvalPending ? 560 : activityOpen ? 460 : suggestOpen ? 460 : 380;
+  const expandedH = approvalPending
+    ? 560
+    : activityOpen
+      ? 460
+      : suggestOpen
+        ? 460
+        : findOpen
+          ? CHROME_HEIGHT + FIND_BAR_H
+          : 380;
   const chromeH = modalOpen
     ? height // full window so a centered modal can overlay the page
-    : approvalPending || activityOpen || suggestOpen
+    : approvalPending || activityOpen || suggestOpen || findOpen
       ? Math.min(expandedH, height)
       : CHROME_HEIGHT;
   activeTab()?.view.setBounds({ x: 0, y: CHROME_HEIGHT, width, height: Math.max(0, height - CHROME_HEIGHT) });
@@ -568,6 +578,27 @@ function makeTabView(id: string, containerId: string): WebContentsView {
   wc.on('page-title-updated', onState);
   wc.on('did-start-loading', onState);
   wc.on('did-stop-loading', onState);
+
+  // Find-in-page match tally (human-only Cmd+F). Forward only the active tab's result to the
+  // chrome UI so the counter tracks what the user is looking at. Purely a UI affordance — no
+  // page content leaves the page, and the agent has no find tool.
+  wc.on('found-in-page', (_e, result) => {
+    if (tabModel.activeId() === id && chromeView && !chromeView.webContents.isDestroyed()) {
+      chromeView.webContents.send('find:result', {
+        activeMatchOrdinal: result.activeMatchOrdinal,
+        matches: result.matches,
+      });
+    }
+  });
+  // Cmd/Ctrl+F while THIS page view has keyboard focus never reaches the chrome renderer's
+  // window listener, so catch it here and relay to the chrome UI (which focuses the find input).
+  wc.on('before-input-event', (event, input) => {
+    if (input.type !== 'keyDown' || !(input.meta || input.control) || input.key.toLowerCase() !== 'f') return;
+    if (tabModel.activeId() !== id || !chromeView || chromeView.webContents.isDestroyed()) return;
+    event.preventDefault();
+    chromeView.webContents.focus(); // so the renderer's findInput.focus() actually lands
+    chromeView.webContents.send('find:open-request');
+  });
 
   // Persist the tab set whenever a committed navigation changes this tab's URL.
   wc.on('did-navigate', () => persistTabs());
@@ -839,6 +870,34 @@ ipcMain.handle('ui:modal', (_e, open: unknown) => {
 ipcMain.handle('ui:suggest', (_e, open: unknown) => {
   suggestOpen = !!open;
   layout();
+});
+
+// --- Find in page (human-only Cmd+F; never an agent tool) ---
+ipcMain.handle('find:open', () => {
+  findOpen = true;
+  layout();
+});
+ipcMain.handle('find:close', () => {
+  findOpen = false;
+  const wc = activeTab()?.view.webContents;
+  if (wc && !wc.isDestroyed()) wc.stopFindInPage('clearSelection');
+  layout();
+});
+ipcMain.handle('find:query', (_e, payload: unknown) => {
+  const wc = activeTab()?.view.webContents;
+  if (!wc || wc.isDestroyed()) return;
+  const p = (payload ?? {}) as { text?: unknown; forward?: unknown; findNext?: unknown; matchCase?: unknown };
+  const text = typeof p.text === 'string' ? p.text : '';
+  if (text === '') {
+    wc.stopFindInPage('clearSelection'); // empty query → clear highlights (findInPage throws on '')
+    return;
+  }
+  // findNext:true begins a NEW find session (initial query); false is a follow-up next/prev step.
+  wc.findInPage(text, {
+    forward: p.forward !== false,
+    findNext: p.findNext === true,
+    matchCase: p.matchCase === true,
+  });
 });
 
 // --- Downloads (user surface only — never exposed to the agent) ---
