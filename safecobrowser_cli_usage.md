@@ -67,6 +67,7 @@ $ safecobrowser tools
     { "name": "inspect_element", "minMode": "inspect", "risk": "low",    "requiresApproval": false },
     { "name": "read_console",    "minMode": "inspect", "risk": "low",    "requiresApproval": false },
     { "name": "read_network",    "minMode": "inspect", "risk": "low",    "requiresApproval": false },
+    { "name": "read_network_body","minMode": "inspect","risk": "low",    "requiresApproval": false },
     { "name": "click",           "minMode": "act",     "risk": "medium", "requiresApproval": true  },
     { "name": "fill",            "minMode": "act",     "risk": "medium", "requiresApproval": true  },
     { "name": "scroll_to",       "minMode": "act",     "risk": "low",    "requiresApproval": true  },
@@ -154,6 +155,7 @@ the active tab by default, or another open tab via `--tab <id>` (§2).
 | `inspect_element` | Inspect | `safecobrowser invoke inspect_element '{"selector":"form button"}'` |
 | `read_console` | Inspect | `safecobrowser invoke read_console '{"limit":50}'` |
 | `read_network` | Inspect | `safecobrowser invoke read_network '{"limit":50}'` |
+| `read_network_body` | Inspect | `safecobrowser invoke read_network_body '{"limit":20}'` |
 | `click` | Act | `safecobrowser invoke click '{"selector":"a[href*=\"/contact\"]"}'` |
 | `fill` | Act | `safecobrowser invoke fill '{"selector":"#email","value":"hi@example.com"}'` |
 | `submit_feedback` | any (approval) | `safecobrowser invoke submit_feedback '{"message":"great tool"}'` |
@@ -165,8 +167,9 @@ the active tab by default, or another open tab via `--tab <id>` (§2).
 - **`read_page`** → `{ url, title, text, links:[{href,text}] }`
 - **`screenshot`** → `{ mimeType:"image/png", base64 }` (large — pipe to a file, see §5)
 - **`inspect_element`** `{ selector }` → `{ matched, tagName?, attributes?, text?, outerHTML?, rect? }`
-- **`read_console`** `{ limit? }` (default 100, max 1000) → `[{ level, text, ts }]`
+- **`read_console`** `{ limit? }` (default 100, max 1000) → `[{ level, text, ts }]` — `level` ∈ `log|info|warning|error`. Filter `level:"error"` to check a page for JS errors / uncaught exceptions (first stop for "why did this fail?").
 - **`read_network`** `{ limit? }` (default 100, max 1000) → `[{ method, url, status?, ts }]`
+- **`read_network_body`** `{ limit? }` (default 100, max 1000; last 50/page kept) → `[{ method, url, status, contentType, body, truncated, ts }]` — XHR/fetch response **bodies**, any origin, **text/JSON only**, each `body` ~64KB-capped. Only captures responses received **after** the current AI grant (buffer is cleared on every grant / Stop AI — no blind-period leak); bodies are never audited.
 - **`click`** `{ selector }` → `{ clicked, matched }`
 - **`fill`** `{ selector, value }` → `{ filled, matched }` (value never logged; fill ≠ submit)
 - **`run_js`** `{ script }` (≤100,000 chars) → the script's return value
