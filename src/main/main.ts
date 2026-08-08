@@ -32,6 +32,7 @@ import { RecordedAction } from '../recorder/actions';
 import { ContainerManager, DEFAULT_CONTAINER } from '../container/containers';
 import { DownloadManager } from './downloads';
 import { HistoryStore } from './history';
+import { BookmarkStore } from './bookmarks';
 import { PrivacyFilter } from '../privacy/filter';
 import { SettingsStore } from '../settings/settings';
 import { plainChromiumUa } from '../settings/user-agent';
@@ -188,6 +189,9 @@ const privacy = new PrivacyFilter(path.join(safecobrowserDir(), 'privacy-filter.
 // Local browsing history for URL-bar autocomplete. HUMAN-only — never exposed to the agent (no tool
 // reads it); populated from committed top-level navigations and queried by the chrome renderer.
 const history = new HistoryStore(path.join(safecobrowserDir(), 'history.json'));
+
+// User bookmarks (global, HUMAN-only — never exposed to the agent, same class as history/downloads).
+const bookmarks = new BookmarkStore(path.join(safecobrowserDir(), 'bookmarks.json'));
 
 // The global User-Agent override is applied to every container session via app.userAgentFallback
 // (picked up by new WebContentsViews) and live-pushed to open tabs.
@@ -462,6 +466,7 @@ function sendPageState(): void {
     canGoBack: wc.navigationHistory.canGoBack(),
     canGoForward: wc.navigationHistory.canGoForward(),
     isLoading: wc.isLoading(),
+    bookmarked: bookmarks.has(wc.getURL()), // drives the address-bar star's filled/empty state
   });
   // Recipes are domain-keyed — re-scope the recipe UI when the active page's domain changes.
   const domain = domainForUrl(wc.getURL());
@@ -871,6 +876,25 @@ ipcMain.handle('ui:suggest', (_e, open: unknown) => {
   suggestOpen = !!open;
   layout();
 });
+
+// --- Bookmarks (human-only; never an agent tool). Global store, keyed by URL. ---
+ipcMain.handle('bookmarks:list', () => bookmarks.list());
+ipcMain.handle('bookmarks:toggle', () => {
+  // Toggle the ACTIVE tab's current page. Returns the new bookmarked state for the star.
+  const wc = activeTab()?.view.webContents;
+  if (!wc || wc.isDestroyed()) return { bookmarked: false };
+  const bookmarked = bookmarks.toggle(wc.getURL(), wc.getTitle());
+  sendPageState(); // refresh the star
+  return { bookmarked };
+});
+ipcMain.handle('bookmarks:remove', (_e, url: unknown) => {
+  const ok = bookmarks.remove(typeof url === 'string' ? url : '');
+  sendPageState(); // the removed URL may be the active page — refresh its star
+  return { ok };
+});
+ipcMain.handle('bookmarks:rename', (_e, url: unknown, title: unknown) => ({
+  ok: bookmarks.rename(typeof url === 'string' ? url : '', typeof title === 'string' ? title : ''),
+}));
 
 // --- Find in page (human-only Cmd+F; never an agent tool) ---
 ipcMain.handle('find:open', () => {
