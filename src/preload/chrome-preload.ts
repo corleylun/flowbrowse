@@ -11,6 +11,13 @@ export interface PageState {
   canGoBack: boolean;
   canGoForward: boolean;
   isLoading: boolean;
+  bookmarked: boolean;
+}
+
+export interface Bookmark {
+  url: string;
+  title: string;
+  createdAt: number;
 }
 
 export interface AiState {
@@ -183,6 +190,13 @@ contextBridge.exposeInMainWorld('safecobrowser', {
   onFindOpenRequest: (cb: () => void): void => {
     ipcRenderer.on('find:open-request', () => cb());
   },
+
+  // Bookmarks (human-only). toggleBookmark stars/unstars the active page; the rest manage the list.
+  listBookmarks: (): Promise<Bookmark[]> => ipcRenderer.invoke('bookmarks:list'),
+  toggleBookmark: (): Promise<{ bookmarked: boolean }> => ipcRenderer.invoke('bookmarks:toggle'),
+  removeBookmark: (url: string): Promise<{ ok: boolean }> => ipcRenderer.invoke('bookmarks:remove', url),
+  renameBookmark: (url: string, title: string): Promise<{ ok: boolean }> =>
+    ipcRenderer.invoke('bookmarks:rename', url, title),
 
   // Per-tab AI permission control (the user is the ONLY one who can set the mode).
   setMode: (mode: string): Promise<void> => ipcRenderer.invoke('ai:set-mode', mode),

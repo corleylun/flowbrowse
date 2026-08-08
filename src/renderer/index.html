@@ -121,7 +121,7 @@
         flex: 1;
         width: 100%;
         height: 36px;
-        padding: 0 14px;
+        padding: 0 36px 0 14px; /* right room for the bookmark star */
         border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
         border-radius: 18px;
         background: color-mix(in srgb, CanvasText 5%, transparent);
@@ -229,6 +229,90 @@
       }
       #find-bar button:hover {
         background: color-mix(in srgb, CanvasText 10%, transparent);
+      }
+      /* Bookmarks: address-bar star (overlays the input's right edge) + panel list rows. */
+      .star {
+        position: absolute;
+        right: 8px;
+        top: 50%;
+        transform: translateY(-50%);
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 18px;
+        line-height: 1;
+        color: color-mix(in srgb, CanvasText 50%, transparent);
+        padding: 2px 4px;
+        border-radius: 6px;
+      }
+      .star:hover {
+        background: color-mix(in srgb, CanvasText 12%, transparent);
+      }
+      .star.on {
+        color: #ffb300; /* gold when the page is bookmarked */
+      }
+      .star[hidden] {
+        display: none;
+      }
+      #bm-list {
+        max-height: 340px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .bm-empty {
+        padding: 16px 4px;
+        font-size: 12px;
+        color: color-mix(in srgb, CanvasText 55%, transparent);
+      }
+      .bm-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .bm-open {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        text-align: left;
+        padding: 6px 8px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: transparent;
+        color: CanvasText;
+        cursor: pointer;
+        overflow: hidden;
+      }
+      .bm-open:hover {
+        background: color-mix(in srgb, #3366ff 12%, transparent);
+      }
+      .bm-title {
+        font-size: 13px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .bm-url {
+        font-size: 11px;
+        color: color-mix(in srgb, CanvasText 55%, transparent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .bm-del {
+        flex: none;
+        width: 26px;
+        height: 26px;
+        border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        background: transparent;
+        color: CanvasText;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      .bm-del:hover {
+        background: color-mix(in srgb, #ff453a 16%, transparent);
       }
       .ai {
         display: flex;
@@ -551,6 +635,7 @@
       #recipe-modal,
       #editor-modal,
       #downloads-modal,
+      #bookmarks-modal,
       #privacy-modal,
       #settings-modal {
         position: fixed;
@@ -566,6 +651,7 @@
       #recipe-modal.show,
       #editor-modal.show,
       #downloads-modal.show,
+      #bookmarks-modal.show,
       #privacy-modal.show,
       #settings-modal.show { display: flex; }
       #container-modal .sheet,
@@ -573,6 +659,7 @@
       #recipe-modal .sheet,
       #editor-modal .sheet,
       #downloads-modal .sheet,
+      #bookmarks-modal .sheet,
       #privacy-modal .sheet,
       #settings-modal .sheet {
         width: 320px;
@@ -589,6 +676,7 @@
       #recipe-modal h2,
       #editor-modal h2,
       #downloads-modal h2,
+      #bookmarks-modal h2,
       #privacy-modal h2,
       #settings-modal h2 {
         margin: 0 0 4px;
@@ -600,6 +688,7 @@
       #recipe-modal p,
       #editor-modal p,
       #downloads-modal p,
+      #bookmarks-modal p,
       #privacy-modal p,
       #settings-modal p {
         margin: 0 0 12px;
@@ -1028,6 +1117,7 @@
       <button id="reload" class="nav" title="Reload">⟳</button>
       <div class="addr-wrap">
         <input id="addr" type="text" placeholder="Search or enter address" spellcheck="false" autocomplete="off" />
+        <button id="star-btn" class="star" title="Bookmark this page" hidden>☆</button>
         <div id="addr-suggest" class="suggest-list" role="listbox" hidden></div>
       </div>
       <div class="ai">
@@ -1045,6 +1135,7 @@
         <button id="auto-runjs" class="recbtn" title="Auto-approve run_js (no prompt) for this tab — risky">Auto·js</button>
         <button id="activity-btn" class="recbtn" title="Show the AI activity log">Activity</button>
         <button id="downloads-btn" class="recbtn" title="Downloads (saved to this container’s folder)">⬇ Downloads</button>
+        <button id="bookmarks-btn" class="recbtn" title="Your saved bookmarks">★ Bookmarks</button>
       </div>
     </div>
 
@@ -1161,6 +1252,17 @@
         <div class="actions">
           <button id="dl-clear">Clear finished</button>
           <button id="dl-close">Done</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="bookmarks-modal">
+      <div class="sheet wide">
+        <h2>Bookmarks</h2>
+        <p>Your saved links. Click one to open it in this tab. Bookmarks are yours only — the agent never sees them.</p>
+        <div id="bm-list"></div>
+        <div class="actions">
+          <button id="bm-close">Done</button>
         </div>
       </div>
     </div>

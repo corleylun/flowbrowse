@@ -8,6 +8,13 @@ interface PageState {
   canGoBack: boolean;
   canGoForward: boolean;
   isLoading: boolean;
+  bookmarked: boolean;
+}
+
+interface Bookmark {
+  url: string;
+  title: string;
+  createdAt: number;
 }
 
 interface AiState {
@@ -155,6 +162,10 @@ interface SafeCoBrowserApi {
   findQuery(payload: FindQuery): Promise<void>;
   onFindResult(cb: (r: FindResult) => void): void;
   onFindOpenRequest(cb: () => void): void;
+  listBookmarks(): Promise<Bookmark[]>;
+  toggleBookmark(): Promise<{ bookmarked: boolean }>;
+  removeBookmark(url: string): Promise<{ ok: boolean }>;
+  renameBookmark(url: string, title: string): Promise<{ ok: boolean }>;
   onPageState(cb: (state: PageState) => void): void;
   setMode(mode: string): Promise<void>;
   stopAi(): Promise<void>;
@@ -490,6 +501,88 @@ jt.onPageState((s: PageState) => {
   paintAddress();
   backBtn.disabled = !s.canGoBack;
   forwardBtn.disabled = !s.canGoForward;
+  setStar(!!s.bookmarked, /^https?:\/\//i.test(s.url || ''));
+});
+
+// --- Bookmarks (human-only): ★ star in the address bar to add/remove the current page, and a
+// ★ Bookmarks panel to reopen saved links. The agent has no bridge to any of this. ---
+const starBtn = el('star-btn') as HTMLButtonElement;
+const bmBtn = el('bookmarks-btn') as HTMLButtonElement;
+const bmModal = el('bookmarks-modal');
+const bmList = el('bm-list');
+const bmClose = el('bm-close') as HTMLButtonElement;
+let bmOpen = false;
+
+function setStar(on: boolean, bookmarkable: boolean): void {
+  starBtn.hidden = !bookmarkable; // no star on the internal shell / blank / non-web pages
+  starBtn.textContent = on ? '★' : '☆';
+  starBtn.classList.toggle('on', on);
+  starBtn.title = on ? 'Remove bookmark' : 'Bookmark this page';
+}
+
+starBtn.addEventListener('click', async () => {
+  const { bookmarked } = await jt.toggleBookmark();
+  setStar(bookmarked, true);
+  if (bmOpen) void renderBookmarks(); // keep an open panel in sync
+});
+
+async function renderBookmarks(): Promise<void> {
+  const items = await jt.listBookmarks();
+  bmList.replaceChildren();
+  if (items.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'bm-empty';
+    empty.textContent = 'No bookmarks yet. Click the ☆ in the address bar to save a page.';
+    bmList.appendChild(empty);
+    return;
+  }
+  for (const b of items) {
+    const row = document.createElement('div');
+    row.className = 'bm-row';
+    const open = document.createElement('button');
+    open.className = 'bm-open';
+    open.title = 'Open';
+    const title = document.createElement('span');
+    title.className = 'bm-title';
+    title.textContent = redactDisplay(b.title || b.url); // display redacted; navigate to the real URL
+    const url = document.createElement('span');
+    url.className = 'bm-url';
+    url.textContent = redactDisplay(b.url);
+    open.append(title, url);
+    open.addEventListener('click', () => {
+      closeBookmarks();
+      void jt.go(b.url); // open in the active tab, exactly like typing the URL
+    });
+    const del = document.createElement('button');
+    del.className = 'bm-del';
+    del.textContent = '✕';
+    del.title = 'Remove bookmark';
+    del.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await jt.removeBookmark(b.url);
+      void renderBookmarks();
+    });
+    row.append(open, del);
+    bmList.appendChild(row);
+  }
+}
+
+async function openBookmarks(): Promise<void> {
+  bmOpen = true;
+  bmModal.classList.add('show');
+  void jt.setModalOpen(true);
+  await renderBookmarks();
+}
+function closeBookmarks(): void {
+  bmOpen = false;
+  bmModal.classList.remove('show');
+  void jt.setModalOpen(false);
+}
+
+bmBtn.addEventListener('click', () => void openBookmarks());
+bmClose.addEventListener('click', closeBookmarks);
+bmModal.addEventListener('mousedown', (e) => {
+  if (e.target === bmModal) closeBookmarks(); // backdrop click
 });
 
 // --- AI permission control ---
