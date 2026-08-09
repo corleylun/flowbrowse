@@ -174,6 +174,7 @@ contextBridge.exposeInMainWorld('safecobrowser', {
   back: (): Promise<void> => ipcRenderer.invoke('nav:back'),
   forward: (): Promise<void> => ipcRenderer.invoke('nav:forward'),
   reload: (): Promise<void> => ipcRenderer.invoke('nav:reload'),
+  stop: (): Promise<void> => ipcRenderer.invoke('nav:stop'),
   toggleDevTools: (): Promise<void> => ipcRenderer.invoke('devtools:toggle'),
   onPageState: (cb: (state: PageState) => void): void => {
     ipcRenderer.on('page:state', (_e, state: PageState) => cb(state));

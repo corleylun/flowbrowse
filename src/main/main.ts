@@ -797,6 +797,7 @@ ipcMain.handle('devtools:toggle', () => {
 ipcMain.handle('nav:back', () => activeTab()?.view.webContents.navigationHistory.goBack());
 ipcMain.handle('nav:forward', () => activeTab()?.view.webContents.navigationHistory.goForward());
 ipcMain.handle('nav:reload', () => activeTab()?.view.webContents.reload());
+ipcMain.handle('nav:stop', () => activeTab()?.view.webContents.stop()); // cancel an in-progress load
 
 // --- Per-tab AI permission control (only the user, via this UI, sets the mode) ---
 ipcMain.handle('ai:set-mode', (_e, mode: unknown) => {

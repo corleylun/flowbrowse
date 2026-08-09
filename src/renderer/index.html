@@ -314,6 +314,40 @@
       .bm-del:hover {
         background: color-mix(in srgb, #ff453a 16%, transparent);
       }
+      /* Indeterminate page-load bar — animates at the toolbar/page seam while the active tab loads. */
+      #loading-bar {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        height: 3px;
+        width: 100%;
+        overflow: hidden;
+        pointer-events: none;
+        z-index: 60;
+        opacity: 0;
+        transition: opacity 0.15s;
+      }
+      #loading-bar.active {
+        opacity: 1;
+      }
+      #loading-bar::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        height: 100%;
+        width: 35%;
+        background: #3366ff;
+        border-radius: 2px;
+        animation: loading-slide 1.1s ease-in-out infinite;
+      }
+      @keyframes loading-slide {
+        0% {
+          left: -35%;
+        }
+        100% {
+          left: 100%;
+        }
+      }
       .ai {
         display: flex;
         align-items: center;
@@ -1166,6 +1200,9 @@
       <button id="find-next" title="Next match (Enter)">›</button>
       <button id="find-close" title="Close (Esc)">✕</button>
     </div>
+
+    <!-- Indeterminate page-load bar — animates at the toolbar/page seam while the active tab loads. -->
+    <div id="loading-bar"></div>
 
     <div id="activity">
       <div class="activity-head">

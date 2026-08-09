@@ -156,6 +156,7 @@ interface SafeCoBrowserApi {
   back(): Promise<void>;
   forward(): Promise<void>;
   reload(): Promise<void>;
+  stop(): Promise<void>;
   toggleDevTools(): Promise<void>;
   openFind(): Promise<void>;
   closeFind(): Promise<void>;
@@ -283,10 +284,22 @@ const el = (id: string): HTMLElement => {
 const addr = el('addr') as HTMLInputElement;
 const backBtn = el('back') as HTMLButtonElement;
 const forwardBtn = el('forward') as HTMLButtonElement;
+const reloadBtn = el('reload') as HTMLButtonElement;
+const loadingBar = el('loading-bar');
+let pageLoading = false;
+
+// Reflect the active tab's load state: the reload button becomes a Stop (✕) while loading, and a
+// thin indeterminate bar animates under the toolbar. Driven purely by page:state.isLoading.
+function setLoading(on: boolean): void {
+  pageLoading = on;
+  reloadBtn.textContent = on ? '✕' : '⟳';
+  reloadBtn.title = on ? 'Stop loading' : 'Reload';
+  loadingBar.classList.toggle('active', on);
+}
 
 backBtn.addEventListener('click', () => jt.back());
 forwardBtn.addEventListener('click', () => jt.forward());
-el('reload').addEventListener('click', () => jt.reload());
+reloadBtn.addEventListener('click', () => (pageLoading ? jt.stop() : jt.reload()));
 el('devtools-btn').addEventListener('click', () => void jt.toggleDevTools());
 let realUrl = ''; // the true address; the bar shows a redacted version when the filter is on + unfocused
 function paintAddress(): void {
@@ -502,6 +515,7 @@ jt.onPageState((s: PageState) => {
   backBtn.disabled = !s.canGoBack;
   forwardBtn.disabled = !s.canGoForward;
   setStar(!!s.bookmarked, /^https?:\/\//i.test(s.url || ''));
+  setLoading(!!s.isLoading);
 });
 
 // --- Bookmarks (human-only): ★ star in the address bar to add/remove the current page, and a
