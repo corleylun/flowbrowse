@@ -17,7 +17,7 @@ import { createCoordinateTools } from '../tools/coordinate';
 import { createDevTools } from '../tools/dev';
 import { ElectronPageController } from './page-controller';
 import { UiApprovalProvider } from './ui-approval';
-import { originOf, isWebOrigin } from './nav';
+import { originOf, isWebOrigin, normalizeUrl } from './nav';
 import { ControlServer } from '../server/control-server';
 import { loadOrCreateToken, regenerateToken, writeEndpoint, safecobrowserDir } from '../server/endpoint';
 import { FileAuditSink, AUDIT_FILENAME, SealedRecord } from '../audit/file-sink';
@@ -153,6 +153,11 @@ const realInputByTab = new Map<string, boolean>();
 function getRealInput(tabId: string): boolean {
   return realInputByTab.get(tabId) ?? false;
 }
+
+// The URL a tab last FAILED to load (network error), while its error page is shown. Lets the
+// address bar keep the typed URL (not the error page's data: URL) and the reload button retry it.
+const failedUrlByTab = new Map<string, string>();
+const ERROR_PAGE_PREFIX = 'data:text/html';
 
 // App-wide user settings (UA override, approval timeout, MCP port). Created early so the approval
 // provider and control server can read live values from it.
@@ -456,20 +461,64 @@ function showActiveTabOnly(): void {
   layout();
 }
 
+// A readable in-page error (human-only UI) shown instead of a blank view when a main-frame load
+// fails — e.g. a local dev server that isn't running yet (ERR_CONNECTION_REFUSED). Not an agent
+// surface; the opaque data: origin means no AI grant and it's never recorded in history.
+function errorPageHtml(url: string, code: number, desc: string): string {
+  const esc = (s: string): string =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const friendly: Record<number, string> = {
+    [-102]: 'The server refused the connection. If this is a local dev server, is it running on that port?',
+    [-105]: 'The address couldn’t be found — check the hostname for a typo.',
+    [-106]: 'No internet connection.',
+    [-109]: 'The address is unreachable.',
+    [-118]: 'The connection timed out.',
+    [-201]: 'The site’s security certificate is not trusted.',
+    [-501]: 'The connection is not secure.',
+  };
+  const msg = friendly[code] || esc(desc || 'The page could not be loaded.');
+  const u = esc(url);
+  return (
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="light dark">` +
+    `<title>Can’t reach ${u}</title><style>` +
+    `:root{color-scheme:light dark}` +
+    `body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;` +
+    `font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:Canvas;color:CanvasText}` +
+    `.box{max-width:520px;padding:32px;text-align:center}.icon{font-size:44px}` +
+    `h1{font-size:20px;margin:16px 0 8px}` +
+    `p{font-size:14px;color:color-mix(in srgb,CanvasText 65%,transparent);line-height:1.5;margin:0 0 14px}` +
+    `.url{font-family:ui-monospace,monospace;font-size:13px;word-break:break-all;` +
+    `background:color-mix(in srgb,CanvasText 8%,transparent);padding:6px 10px;border-radius:8px;display:inline-block;margin:8px 0 16px}` +
+    `a.retry{display:inline-block;padding:9px 18px;border-radius:9px;background:#3366ff;color:#fff;text-decoration:none;font-size:14px;font-weight:600}` +
+    `.code{font-size:12px;color:color-mix(in srgb,CanvasText 45%,transparent);margin-top:16px}` +
+    `</style></head><body><div class="box">` +
+    `<div class="icon">⚠️</div><h1>This site can’t be reached</h1>` +
+    `<div class="url">${u}</div><p>${msg}</p>` +
+    `<p><a class="retry" href="${u}">Try again</a></p>` +
+    `<div class="code">${esc(desc)} (${code})</div>` +
+    `</div></body></html>`
+  );
+}
+
 function sendPageState(): void {
   const tab = activeTab();
   if (!tab || !chromeView) return;
   const wc = tab.view.webContents;
+  // While the error page is shown, keep displaying the URL the user actually tried, not the
+  // internal data: URL of the error page.
+  const raw = wc.getURL();
+  const failed = failedUrlByTab.get(tabModel.activeId());
+  const url = failed && raw.startsWith(ERROR_PAGE_PREFIX) ? failed : raw;
   chromeView.webContents.send('page:state', {
-    url: wc.getURL(),
+    url,
     title: wc.getTitle(),
     canGoBack: wc.navigationHistory.canGoBack(),
     canGoForward: wc.navigationHistory.canGoForward(),
     isLoading: wc.isLoading(),
-    bookmarked: bookmarks.has(wc.getURL()), // drives the address-bar star's filled/empty state
+    bookmarked: bookmarks.has(url), // drives the address-bar star's filled/empty state
   });
   // Recipes are domain-keyed — re-scope the recipe UI when the active page's domain changes.
-  const domain = domainForUrl(wc.getURL());
+  const domain = domainForUrl(url);
   if (domain !== lastRecipeDomain) {
     lastRecipeDomain = domain;
     sendRecipeState();
@@ -511,13 +560,6 @@ function sendContainerState(): void {
     current: active?.containerId ?? DEFAULT_CONTAINER,
     containers: containerManager.list(),
   });
-}
-
-function normalizeUrl(input: string): string {
-  const s = input.trim();
-  if (/^https?:\/\//i.test(s)) return s;
-  if (/^[\w-]+(\.[\w-]+)+(\/.*)?$/.test(s) && !s.includes(' ')) return 'https://' + s;
-  return 'https://duckduckgo.com/?q=' + encodeURIComponent(s);
 }
 
 function destroyWebContents(wc: WebContents): void {
@@ -616,6 +658,22 @@ function makeTabView(id: string, containerId: string): WebContentsView {
     if (isMainFrame) history.record(url, wc.getTitle());
   });
   wc.on('page-title-updated', (_e, title) => history.touchTitle(wc.getURL(), title));
+
+  // Show a readable error page (not a blank view) when a main-frame load fails — e.g. a dev server
+  // that isn't running (ERR_CONNECTION_REFUSED). Skip ERR_ABORTED (-3), which fires for cancelled/
+  // superseded loads, and never recurse on our own error page.
+  wc.on('did-fail-load', (_e, errorCode, errorDescription, validatedURL, isMainFrame) => {
+    if (!isMainFrame || errorCode === -3 || validatedURL.startsWith(ERROR_PAGE_PREFIX)) return;
+    failedUrlByTab.set(id, validatedURL);
+    const html = errorPageHtml(validatedURL, errorCode, errorDescription);
+    setImmediate(() => {
+      if (!wc.isDestroyed()) void wc.loadURL(ERROR_PAGE_PREFIX + ';charset=utf-8,' + encodeURIComponent(html)).catch(() => {});
+    });
+  });
+  // A successful (non-error-page) navigation clears the failed-URL state.
+  wc.on('did-navigate', (_e, url) => {
+    if (!url.startsWith(ERROR_PAGE_PREFIX)) failedUrlByTab.delete(id);
+  });
 
   // The AI grant persists across navigation; it is only cleared by Stop AI or a mode
   // change. (No cross-origin auto-revoke.)
@@ -796,7 +854,14 @@ ipcMain.handle('devtools:toggle', () => {
 });
 ipcMain.handle('nav:back', () => activeTab()?.view.webContents.navigationHistory.goBack());
 ipcMain.handle('nav:forward', () => activeTab()?.view.webContents.navigationHistory.goForward());
-ipcMain.handle('nav:reload', () => activeTab()?.view.webContents.reload());
+ipcMain.handle('nav:reload', () => {
+  const wc = activeTab()?.view.webContents;
+  if (!wc || wc.isDestroyed()) return;
+  // If the error page is showing, reload should RETRY the URL that failed, not reload the error page.
+  const failed = failedUrlByTab.get(tabModel.activeId());
+  if (failed && wc.getURL().startsWith(ERROR_PAGE_PREFIX)) void wc.loadURL(failed);
+  else wc.reload();
+});
 ipcMain.handle('nav:stop', () => activeTab()?.view.webContents.stop()); // cancel an in-progress load
 
 // --- Per-tab AI permission control (only the user, via this UI, sets the mode) ---
