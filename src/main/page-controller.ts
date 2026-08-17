@@ -4,6 +4,7 @@ import { DevController } from '../tools/dev';
 import { ActController, ClickResult, FillResult, SubmitResult, Liveness } from '../tools/act';
 import { InspectController, ElementInfo, ConsoleMessage, NetworkEntry, NetworkBodyEntry } from '../tools/inspect';
 import { LocateController, LocateResult, LocateMatch } from '../tools/locate';
+import { OcrController, OcrEngine, ScreenText, mapWordsToViewport, pngDimensions, MAX_WORDS } from '../tools/ocr';
 import { ScrollToController, ScrollToResult } from '../tools/scroll-to';
 import { CoordinateController, CoordPreviewer, CoordResult } from '../tools/coordinate';
 import { ApprovalPreview } from '../core/approval';
@@ -133,17 +134,21 @@ export class ElectronPageController
     CoordinateController,
     CoordPreviewer,
     LocateController,
+    OcrController,
     ScrollToController
 {
   private readonly consoleBuf = new Map<string, ConsoleMessage[]>();
   private readonly networkBuf = new Map<string, NetworkEntry[]>();
   private readonly bufCap = 200;
   private readonly hooks: RealInputHooks;
+  private readonly ocr?: OcrEngine;
 
   constructor(
     private readonly resolve: WebContentsResolver,
     hooks?: Partial<RealInputHooks>,
+    ocr?: OcrEngine,
   ) {
+    this.ocr = ocr;
     // Default: never use real input, treat every tab as active. Keeps existing callers/tests
     // on the JS path unless real-input hooks are explicitly wired in (main.ts).
     this.hooks = {
@@ -234,6 +239,36 @@ export class ElectronPageController
       };
     }
     return { mimeType: 'image/png', base64: image.toPNG().toString('base64') };
+  }
+
+  /**
+   * OCR the live capture into words + on-screen coordinates (CSS viewport px). Same honesty as
+   * `screenshot`: runs on the current (privacy-redacted) render, and an empty/hidden-tab capture
+   * returns an honest note rather than a blank result. Coordinates come out in the SAME space as
+   * `locate`/`click_at` via a ratio-only raster→viewport map (folds out dpr AND zoom).
+   */
+  async readScreenText(tabId: string): Promise<ScreenText> {
+    if (!this.ocr) return { count: 0, words: [], note: 'OCR is unavailable in this build' };
+    const wc = this.wc(tabId);
+    const image = await wc.capturePage();
+    if (image.isEmpty()) {
+      return {
+        count: 0,
+        words: [],
+        note: 'empty capture — the tab is likely hidden/backgrounded; switch_tab to it first',
+      };
+    }
+    const vp = (await wc.executeJavaScript(
+      '({ w: window.innerWidth, h: window.innerHeight })',
+      false,
+    )) as { w: number; h: number };
+    const png = image.toPNG();
+    // Raster size from the PNG itself, NOT image.getSize() — toPNG() encodes PHYSICAL pixels
+    // (2× on retina) while getSize() is LOGICAL, and tesseract measures the physical raster.
+    const raster = pngDimensions(png);
+    const raw = await this.ocr.recognize(png);
+    const words = mapWordsToViewport(raw, raster, vp, MAX_WORDS);
+    return { count: raw.filter((w) => w.text.trim() !== '').length, words };
   }
 
   // --- Act tier (selectors embedded via JSON.stringify; fixed action scripts) ---

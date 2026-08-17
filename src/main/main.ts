@@ -11,6 +11,8 @@ import { createTabTools, TabInfo } from '../tools/tabs';
 import { attachPageContextMenu, attachChromeContextMenu } from './context-menu';
 import { createInspectTools } from '../tools/inspect';
 import { createLocateTool } from '../tools/locate';
+import { createOcrTool } from '../tools/ocr';
+import { TesseractEngine } from './ocr-engine';
 import { createScrollToTool } from '../tools/scroll-to';
 import { createActTools } from '../tools/act';
 import { createCoordinateTools } from '../tools/coordinate';
@@ -242,6 +244,19 @@ function closeIfDownloadOnlyPopup(wc: WebContents): void {
 
 // Tools resolve a tab id to its live page (per-tab). The agent only ever targets the
 // active tab (activeTab() below), but the resolver works for any live tab.
+// Offline OCR engine (read_screen_text). All assets are bundled — no network, ever. In dev they
+// live in the repo (assets/tessdata + node_modules); in a packaged app the traineddata ships as an
+// extraResource under Resources/tessdata and tesseract.js/-core are asarUnpack'd (see package.json).
+const ocrEngine = new TesseractEngine({
+  langPath: app.isPackaged
+    ? path.join(process.resourcesPath, 'tessdata')
+    : path.join(app.getAppPath(), 'assets', 'tessdata'),
+  // corePath is a browser-URL concept; the node worker require()s the core directly (SIMD-variant
+  // chosen at runtime), so this is belt-and-suspenders — asarUnpack ships ALL core variants anyway.
+  corePath: path.dirname(require.resolve('tesseract.js-core/tesseract-core-lstm.wasm.js')),
+  workerPath: require.resolve('tesseract.js/src/worker-script/node/index.js'),
+});
+
 const pageController = new ElectronPageController(
   (tabId) => tabs.get(tabId)?.view.webContents ?? null,
   {
@@ -251,6 +266,7 @@ const pageController = new ElectronPageController(
     // (showActiveTabOnly) so they genuinely can't receive sendInputEvent → honest JS fallback.
     isActiveTab: (id) => tabModel.activeId() === id,
   },
+  ocrEngine,
 );
 for (const tool of createReadTools(pageController)) core.registry.register(tool);
 // Read-only "what mode am I in?" — off the ladder so the agent can always check (even at Off).
@@ -289,6 +305,9 @@ for (const tool of createInspectTools(pageController)) core.registry.register(to
 // locate — DOM → coordinates (Read-tier, no approval); lets an agent target click_at/move_to
 // without a screenshot + vision pass, the slow half of the computer-use loop.
 core.registry.register(createLocateTool(pageController));
+// read_screen_text — OCR the capture into words + coordinates (Read-tier, no approval). The
+// canvas/no-DOM companion to locate: precise text→coordinate targeting without a vision pass.
+core.registry.register(createOcrTool(pageController));
 for (const tool of createActTools(pageController)) core.registry.register(tool);
 // scroll_to — bring a located element into view (Act-tier, approval); one targeted scroll instead
 // of blind scroll-and-recheck when a locate match is off-viewport.
