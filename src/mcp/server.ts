@@ -81,14 +81,42 @@ export function buildMcpServer(deps: McpDeps): McpServer {
             ],
           };
         }
-        const text =
-          typeof result.output === 'string' ? result.output : JSON.stringify(result.output);
-        return { content: [{ type: 'text' as const, text }] };
+        return { content: toMcpContent(result.output) };
       },
     );
   }
 
   return server;
+}
+
+/** An MCP content block: text, or a rendered image the model can actually see. */
+type McpContent =
+  | { type: 'text'; text: string }
+  | { type: 'image'; data: string; mimeType: string };
+
+/**
+ * Serialize a tool's output into MCP content blocks.
+ *
+ * Image-shaped output (`{ mimeType, base64 }`, e.g. `screenshot`) is emitted as an MCP
+ * **image** block so the client renders it as a viewable picture — NOT a JSON/base64 text
+ * blob the model can't see and that floods context. An empty capture (hidden/backgrounded
+ * tab returns `base64: ''`) carries an honest `note` instead of a blank image. Everything
+ * else is text: strings verbatim, objects JSON-stringified.
+ */
+export function toMcpContent(output: unknown): McpContent[] {
+  if (output && typeof output === 'object' && 'base64' in output && 'mimeType' in output) {
+    const o = output as { base64: unknown; mimeType: unknown; note?: unknown };
+    if (typeof o.base64 === 'string' && typeof o.mimeType === 'string') {
+      if (o.base64 === '') {
+        return [{ type: 'text', text: typeof o.note === 'string' ? o.note : 'empty capture' }];
+      }
+      return [{ type: 'image', data: o.base64, mimeType: o.mimeType }];
+    }
+  }
+  // JSON.stringify(undefined) is the JS value `undefined`, not a string — coalesce so the
+  // text block is always a valid string (a tool returning no output shouldn't crash the block).
+  const text = typeof output === 'string' ? output : JSON.stringify(output) ?? '';
+  return [{ type: 'text', text }];
 }
 
 /**
