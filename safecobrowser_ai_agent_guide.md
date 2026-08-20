@@ -112,7 +112,7 @@ call only if the tab's **current** mode is at least that high.
 | Mode | Value | Unlocks (cumulative) |
 |------|-------|----------------------|
 | **Blocked** | `blocked` | nothing — AI is off (default) |
-| **Read** | `read` | `read_page`, `screenshot`, `locate`, `list_recipes`, `get_recipe` |
+| **Read** | `read` | `read_page`, `screenshot`, `locate`, `read_screen_text`, `list_recipes`, `get_recipe` |
 | **Inspect** | `inspect` | + `inspect_element`, `read_console`, `read_network`, `read_network_body` |
 | **Act** (UI: *Assist*) | `act` | + `click`, `fill`, `scroll_to`, and the coordinate tools `move_to` / `click_at` / `scroll` / `press_key` / `type_text` (all behind approval) |
 | **Develop** (UI: *Developer*) | `develop` | + `run_js` (full page control) |
@@ -180,6 +180,26 @@ the coordinates come straight from the page's layout (~20–30 ms), so acting be
 - Pattern: `locate({ text: "Buy" })` → pick a clean match → `click_at({ x, y })`. On a DOM page this
   replaces the slow screenshot→find-the-pixel loop; keep the coordinate/screenshot path for
   canvas / no-DOM pages only.
+
+### 5.2c `read_screen_text` — Read · Low risk · no approval
+OCR the visible page into **words with their on-screen coordinates**, so you can target the
+coordinate tools (`click_at` / `move_to` / `type_text`) on **canvas / no-DOM pages** where `locate`
+(DOM-only) finds nothing. This is the OCR companion to `locate`: it reads text off the *rendered
+pixels* instead of the DOM.
+- **Input:** none (`{}`)
+- **Output:** `{ count, words: [{ text, x, y, rect, confidence }], note? }`
+- `x`/`y` are each word's **centre in CSS viewport px** — the exact space `click_at`/`move_to` take.
+  `confidence` is 0–100; `count` is the total recognized (may exceed the returned words, which are
+  capped and ordered top-to-bottom then left-to-right).
+- It runs on the **current** capture, so only text **visible in the viewport** is found — `scroll`
+  first to bring off-screen text into view. A hidden/backgrounded tab returns an honest `note`
+  (`switch_tab` to it first).
+- **Not "vision"** — you already see the `screenshot`. This is precise text→coordinate extraction
+  the model can't eyeball; use it to turn "I can see the button" into exact click coordinates.
+- **Guidance:** on a **DOM** page prefer `locate` (faster, exact). Reach for `read_screen_text` only
+  when the target lives in a `<canvas>` / WebGL / video / image with no DOM node to select.
+- Recognition takes ~0.5–1.5 s (local OCR, fully offline — no network). Reads what's on screen
+  *after* the privacy filter, same as `screenshot`.
 
 ### 5.3 `inspect_element` — Inspect · Low risk · no approval
 Inspect one DOM element by CSS selector. (Selector is audited.)

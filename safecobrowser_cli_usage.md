@@ -62,6 +62,7 @@ $ safecobrowser tools
     { "name": "read_page",       "minMode": "read",    "risk": "low",    "requiresApproval": false },
     { "name": "screenshot",      "minMode": "read",    "risk": "low",    "requiresApproval": false },
     { "name": "locate",          "minMode": "read",    "risk": "low",    "requiresApproval": false },
+    { "name": "read_screen_text","minMode": "read",    "risk": "low",    "requiresApproval": false },
     { "name": "list_recipes",    "minMode": "read",    "risk": "low",    "requiresApproval": false },
     { "name": "get_recipe",      "minMode": "read",    "risk": "low",    "requiresApproval": false },
     { "name": "inspect_element", "minMode": "inspect", "risk": "low",    "requiresApproval": false },
@@ -150,6 +151,8 @@ the active tab by default, or another open tab via `--tab <id>` (§2).
 | `switch_tab` | any | `safecobrowser invoke switch_tab '{"tab":"t2"}'` |
 | `read_page` | Read | `safecobrowser invoke read_page` |
 | `screenshot` | Read | `safecobrowser invoke screenshot` |
+| `locate` | Read | `safecobrowser invoke locate '{"text":"Buy"}'` |
+| `read_screen_text` | Read | `safecobrowser invoke read_screen_text` |
 | `list_recipes` | Read | `safecobrowser invoke list_recipes` |
 | `get_recipe` | Read | `safecobrowser invoke get_recipe '{"name":"Search AskMingLi"}'` |
 | `inspect_element` | Inspect | `safecobrowser invoke inspect_element '{"selector":"form button"}'` |
@@ -166,6 +169,7 @@ the active tab by default, or another open tab via `--tab <id>` (§2).
 - **`switch_tab`** `{ tab }` → `{ switched, tab?, reason? }` — brings tab `tab` to the foreground so later calls target it. `switched:false` (+`reason`) if tab control is disabled or the id is unknown. Switching never changes a tab's mode.
 - **`read_page`** → `{ url, title, text, links:[{href,text}] }`
 - **`screenshot`** → `{ mimeType:"image/png", base64 }` (large — pipe to a file, see §5)
+- **`read_screen_text`** → `{ count, words:[{ text, x, y, rect, confidence }], note? }` — OCR of the visible page; `x`/`y` are each word's centre in **CSS viewport px** (feed to `click_at`). For canvas/no-DOM pages where `locate` finds nothing; on DOM pages prefer `locate`. Offline, ~0.5–1.5 s.
 - **`inspect_element`** `{ selector }` → `{ matched, tagName?, attributes?, text?, outerHTML?, rect? }`
 - **`read_console`** `{ limit? }` (default 100, max 1000) → `[{ level, text, ts }]` — `level` ∈ `log|info|warning|error`. Filter `level:"error"` to check a page for JS errors / uncaught exceptions (first stop for "why did this fail?").
 - **`read_network`** `{ limit? }` (default 100, max 1000) → `[{ method, url, status?, ts }]`
