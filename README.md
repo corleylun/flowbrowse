@@ -4,7 +4,7 @@
 
 It is the browser where AI joins only when invited: the *permission + audit layer* for letting an AI agent act on your accounts — off by default, granted in the moment, killable instantly, and logged. Your everyday browser stays untouched, and the agent never receives your cookies, saved passwords, or profile.
 
-**Links:** [Website](https://flowstations.net/safecobrowser) · [What is SafeCoBrowser?](https://flowstations.net/safecobrowser/what-is) · [Docs](https://flowstations.net/safecobrowser/docs) · [Claude Code quickstart](https://flowstations.net/safecobrowser/claude-code-quickstart) · [Codex quickstart](https://flowstations.net/safecobrowser/codex-quickstart) · [Download (macOS)](https://flowstations.net/downloads/SafeCoBrowser-2026-06-30.zip)
+**Links:** [Website](https://flowstations.net/safecobrowser) · [What is SafeCoBrowser?](https://flowstations.net/safecobrowser/what-is) · [Docs](https://flowstations.net/safecobrowser/docs) · [Claude Code quickstart](https://flowstations.net/safecobrowser/claude-code-quickstart) · [Codex quickstart](https://flowstations.net/safecobrowser/codex-quickstart) · [Download (macOS)](https://flowstations.net/downloads/SafeCoBrowser-2026-08-20.zip)
 
 > Status: **v1 MVP — engineering-complete and security-reviewed, not yet market-validated.** macOS-first.
 >
@@ -116,7 +116,7 @@ Every broker decision (allow / deny / error, with reason) is appended to `~/.saf
 
 A **⚙ Settings** panel in the toolbar covers:
 
-- **User-Agent** — a global override (presets + custom), applied to every tab/container.
+- **User-Agent** — a global override (presets + custom), applied to every tab/container. The default presents as standard Chromium (the Electron/app-name tokens are stripped), so pages that only sniff for `Electron` in the UA string work out of the box.
 - **Approvals** — how long an approval card waits before it auto-**denies** (fail-closed; default 120s).
 - **Agent tab control** — whether the agent may enumerate tabs (`list_tabs`) and switch the foreground (`switch_tab`). Default **on**; turn it off to restore single-active-tab visibility (the agent then sees only the tab you put in front). Switching never changes a tab's mode.
 - **Agent connection** — your MCP endpoint + bearer token, one-click copy of the `claude mcp add` command, and **Regenerate token** (rotates the live server's bearer, instantly revoking any connected agent).
