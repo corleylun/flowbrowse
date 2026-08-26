@@ -69,6 +69,7 @@ $ safecobrowser tools
     { "name": "read_console",    "minMode": "inspect", "risk": "low",    "requiresApproval": false },
     { "name": "read_network",    "minMode": "inspect", "risk": "low",    "requiresApproval": false },
     { "name": "read_network_body","minMode": "inspect","risk": "low",    "requiresApproval": false },
+    { "name": "navigate",        "minMode": "act",     "risk": "medium", "requiresApproval": true  },
     { "name": "click",           "minMode": "act",     "risk": "medium", "requiresApproval": true  },
     { "name": "fill",            "minMode": "act",     "risk": "medium", "requiresApproval": true  },
     { "name": "scroll_to",       "minMode": "act",     "risk": "low",    "requiresApproval": true  },
@@ -159,6 +160,7 @@ the active tab by default, or another open tab via `--tab <id>` (§2).
 | `read_console` | Inspect | `safecobrowser invoke read_console '{"limit":50}'` |
 | `read_network` | Inspect | `safecobrowser invoke read_network '{"limit":50}'` |
 | `read_network_body` | Inspect | `safecobrowser invoke read_network_body '{"limit":20}'` |
+| `navigate` | Act | `safecobrowser invoke navigate '{"url":"https://example.com/pricing"}'` |
 | `click` | Act | `safecobrowser invoke click '{"selector":"a[href*=\"/contact\"]"}'` |
 | `fill` | Act | `safecobrowser invoke fill '{"selector":"#email","value":"hi@example.com"}'` |
 | `submit_feedback` | any (approval) | `safecobrowser invoke submit_feedback '{"message":"great tool"}'` |
@@ -167,6 +169,7 @@ the active tab by default, or another open tab via `--tab <id>` (§2).
 ### Inputs & outputs
 - **`list_tabs`** → `{ tabs:[{ tab, active, mode, title, url }] }` — every open tab (titles/URLs privacy-filtered). If the user has disabled agent tab control, only the active tab is returned.
 - **`switch_tab`** `{ tab }` → `{ switched, tab?, reason? }` — brings tab `tab` to the foreground so later calls target it. `switched:false` (+`reason`) if tab control is disabled or the id is unknown. Switching never changes a tab's mode.
+- **`navigate`** `{ url }` → `{ ok, url, title?, note? }` — loads a URL (**http/https only**; a bare `example.com` becomes `https://`, a `:port` or localhost host becomes `http://`). The returned `url` is the **committed** one after redirects — compare it to what you asked for to spot a login/consent bounce. A failed load returns `ok:false` + the Chromium code in `note` rather than erroring. `file:`/`javascript:`/`data:`/other schemes and credential URLs (`https://a@b/`) are refused as `invalid_input`.
 - **`read_page`** → `{ url, title, text, links:[{href,text}] }`
 - **`screenshot`** → `{ mimeType:"image/png", base64 }` (large — pipe to a file, see §5)
 - **`read_screen_text`** → `{ count, words:[{ text, x, y, rect, confidence }], note? }` — OCR of the visible page; `x`/`y` are each word's centre in **CSS viewport px** (feed to `click_at`). For canvas/no-DOM pages where `locate` finds nothing; on DOM pages prefer `locate`. Offline, ~0.5–1.5 s.

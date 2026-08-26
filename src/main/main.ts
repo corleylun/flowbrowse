@@ -14,6 +14,7 @@ import { createLocateTool } from '../tools/locate';
 import { createOcrTool } from '../tools/ocr';
 import { TesseractEngine } from './ocr-engine';
 import { createScrollToTool } from '../tools/scroll-to';
+import { createNavigateTool } from '../tools/navigate';
 import { createActTools } from '../tools/act';
 import { createCoordinateTools } from '../tools/coordinate';
 import { createDevTools } from '../tools/dev';
@@ -309,6 +310,10 @@ core.registry.register(createLocateTool(pageController));
 // canvas/no-DOM companion to locate: precise text→coordinate targeting without a vision pass.
 core.registry.register(createOcrTool(pageController));
 for (const tool of createActTools(pageController)) core.registry.register(tool);
+// navigate — load a url (Act-tier, approval, http(s) only). Without it the only way to reach a
+// new page was run_js + location.href, i.e. the Develop grant: the ladder inverted at its most
+// ordinary point. No new capability (Act can already follow a cross-origin link by clicking it).
+core.registry.register(createNavigateTool(pageController));
 // scroll_to — bring a located element into view (Act-tier, approval); one targeted scroll instead
 // of blind scroll-and-recheck when a locate match is off-viewport.
 core.registry.register(createScrollToTool(pageController));
@@ -831,6 +836,21 @@ function createWindow(): void {
   });
 
   baseWindow.on('resize', layout);
+  // `resize` alone is not enough on macOS. Zoom (maximize) and full-screen are ANIMATED
+  // transitions, and the zoom button may report only `maximize`/`enter-full-screen` — so the
+  // last bounds we see can be the pre-transition ones, leaving the page view small inside a
+  // full-size frame. These events fire when the transition completes; the deferred second pass
+  // covers the case where the event still precedes the final contentBounds update.
+  const relayoutSettled = (): void => {
+    layout();
+    setTimeout(layout, 50);
+  };
+  baseWindow.on('resized', relayoutSettled);
+  baseWindow.on('maximize', relayoutSettled);
+  baseWindow.on('unmaximize', relayoutSettled);
+  baseWindow.on('restore', relayoutSettled);
+  baseWindow.on('enter-full-screen', relayoutSettled);
+  baseWindow.on('leave-full-screen', relayoutSettled);
   baseWindow.on('closed', () => {
     baseWindow = null;
     chromeView = null;

@@ -6,6 +6,7 @@ import { InspectController, ElementInfo, ConsoleMessage, NetworkEntry, NetworkBo
 import { LocateController, LocateResult, LocateMatch } from '../tools/locate';
 import { OcrController, OcrEngine, ScreenText, mapWordsToViewport, pngDimensions, MAX_WORDS } from '../tools/ocr';
 import { ScrollToController, ScrollToResult } from '../tools/scroll-to';
+import { NavigateController, NavigateResult } from '../tools/navigate';
 import { CoordinateController, CoordPreviewer, CoordResult } from '../tools/coordinate';
 import { ApprovalPreview } from '../core/approval';
 import { BrokerError, DenyReason } from '../core/errors';
@@ -135,7 +136,8 @@ export class ElectronPageController
     CoordPreviewer,
     LocateController,
     OcrController,
-    ScrollToController
+    ScrollToController,
+    NavigateController
 {
   private readonly consoleBuf = new Map<string, ConsoleMessage[]>();
   private readonly networkBuf = new Map<string, NetworkEntry[]>();
@@ -813,6 +815,43 @@ export class ElectronPageController
   clearNetworkBody(tabId: string): void {
     const wc = this.resolve(tabId);
     if (wc && !wc.isDestroyed()) void wc.executeJavaScript('window.__scbNet = []', false).catch(() => {});
+  }
+
+  // --- Navigation (Act tier) ---
+  /**
+   * Load a url in a tab. The url arrives already validated as http(s) and credential-free by
+   * `parseNavigationUrl`; this method never widens that (no scheme fixups here).
+   *
+   * Honest about failure: a load error resolves to `ok:false` with the Chromium error code rather
+   * than throwing, because a thrown handler surfaces to the agent as the opaque "tool handler
+   * failed" and it would learn nothing. A revoke mid-load calls `wc.stop()` — the navigation is
+   * actually halted, not merely un-reported.
+   *
+   * Works on a background tab (loadURL needs no foreground); unlike the real-input tools there is
+   * nothing here that requires the active view.
+   */
+  async navigate(tabId: string, url: string, live?: Liveness): Promise<NavigateResult> {
+    const wc = this.wc(tabId);
+    ensureLive(live);
+    const onAbort = (): void => {
+      if (!wc.isDestroyed()) wc.stop();
+    };
+    live?.signal.addEventListener('abort', onAbort, { once: true });
+    try {
+      await wc.loadURL(url);
+      ensureLive(live);
+      return { ok: true, url: wc.getURL(), title: wc.getTitle() };
+    } catch (e) {
+      // Revocation must stay a revocation (BrokerError), not be flattened into ok:false.
+      if (e instanceof BrokerError) throw e;
+      // A revoke aborts the load via wc.stop(), which surfaces here as ERR_ABORTED. Report it as
+      // the revocation it actually was, not as a misleading "load failed".
+      ensureLive(live);
+      const code = (e as { code?: string })?.code;
+      return { ok: false, url, note: typeof code === 'string' && code ? code : 'load failed' };
+    } finally {
+      live?.signal.removeEventListener('abort', onAbort);
+    }
   }
 
   // --- Developer tier ---

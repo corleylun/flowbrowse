@@ -114,7 +114,7 @@ call only if the tab's **current** mode is at least that high.
 | **Blocked** | `blocked` | nothing — AI is off (default) |
 | **Read** | `read` | `read_page`, `screenshot`, `locate`, `read_screen_text`, `list_recipes`, `get_recipe` |
 | **Inspect** | `inspect` | + `inspect_element`, `read_console`, `read_network`, `read_network_body` |
-| **Act** (UI: *Assist*) | `act` | + `click`, `fill`, `scroll_to`, and the coordinate tools `move_to` / `click_at` / `scroll` / `press_key` / `type_text` (all behind approval) |
+| **Act** (UI: *Assist*) | `act` | + `navigate`, `click`, `fill`, `scroll_to`, and the coordinate tools `move_to` / `click_at` / `scroll` / `press_key` / `type_text` (all behind approval) |
 | **Develop** (UI: *Developer*) | `develop` | + `run_js` (full page control) |
 
 - Higher modes include everything below (Act can also Read/Inspect).
@@ -230,6 +230,22 @@ Recent XHR/fetch responses **with their bodies** — the response payloads `read
   the tab was blocked. If you need a specific payload, trigger the page action *after* AI is on, then read.
 - Bodies can contain tokens/PII, so they are **never written to the audit log** (only the fact you called the
   tool is). Use it to read API payloads a feed/page fetched — e.g. the JSON behind an infinite-scroll list.
+
+### 5.5b `navigate` — Act · Medium risk · **approval required**
+Load a URL in the target tab. This is how you move between pages — you do **not** need `run_js`
+for it (and shouldn't ask for Develop just to browse).
+- **Input:** `{ url: string }` — **http/https only** (audited). A scheme-less `example.com` becomes
+  `https://example.com/`; a localhost-family host or an explicit `:port` defaults to `http://`
+  (local dev servers).
+- **Output:** `{ ok, url, title?, note? }` — `url` is the **committed** URL *after redirects*, so
+  compare it with what you asked for to notice you were bounced to a login or consent page.
+- A failed load is honest, not an exception: `ok: false` plus the Chromium code in `note`
+  (e.g. `ERR_NAME_NOT_RESOLVED`). A **Stop AI** mid-load actually halts the navigation.
+- **Refused, by design:** `file:`, `javascript:`, `data:`, `chrome:` and every other scheme
+  (`invalid_input`, naming the scheme), and URLs with embedded credentials
+  (`https://bank.com@evil.com/`) — the approval card must read the way the URL behaves.
+- The tab's grant **carries across the navigation** (there is no cross-origin auto-revoke), exactly
+  as it does when you `click` a link to another site. The human approves each destination.
 
 ### 5.6 `click` — Act · Medium risk · **approval required**
 Click a visible element by CSS selector.
@@ -582,6 +598,7 @@ safecobrowser invoke read_console '{"limit":50}'
 safecobrowser invoke read_network '{"limit":50}'
 
 # Act tier (each prompts the human unless auto-approve is on)
+safecobrowser invoke navigate '{"url":"https://example.com/pricing"}'
 safecobrowser invoke click '{"selector":"a[href*=\"/contact\"]"}'
 safecobrowser invoke fill  '{"selector":"#email","value":"hi@example.com"}'
 
