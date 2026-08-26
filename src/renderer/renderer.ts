@@ -665,6 +665,11 @@ function approvalDetailText(input: unknown): string {
   if (input && typeof input === 'object') {
     const script = (input as { script?: unknown }).script;
     if (typeof script === 'string') return script;
+    // A navigate card is a destination: show the bare url, not JSON braces around it. The url is
+    // already validated http(s) and credential-free, so what is shown is what will be loaded.
+    const keys = Object.keys(input as object);
+    const url = (input as { url?: unknown }).url;
+    if (typeof url === 'string' && keys.length === 1) return url;
     return JSON.stringify(input, null, 2);
   }
   return '';

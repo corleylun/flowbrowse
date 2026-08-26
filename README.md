@@ -71,7 +71,7 @@ Set per tab, by you, in the toolbar. Each tier unlocks more tools:
 | **Off** (Blocked) | grey | — (AI sees nothing) | — |
 | **Read** | blue | `read_page`, `screenshot`, `locate` | no |
 | **Inspect** | teal | + `inspect_element`, `read_console`, `read_network` | no |
-| **Assist** (Act) | amber | + `click`, `fill`, `scroll_to` | **yes** (per action) |
+| **Assist** (Act) | amber | + `navigate`, `click`, `fill`, `scroll_to` | **yes** (per action) |
 | **Developer** | red | + `run_js` (full page control) | **yes** (script shown) |
 
 **Stop AI** instantly revokes the grant (and cancels any in-flight call). Approval-required actions show an action card with the concrete effect (e.g. the exact `run_js` script).
@@ -179,6 +179,7 @@ Real-Chromium smokes (each self-quits):
 ./node_modules/.bin/electron scripts/electron-dev-smoke.js        # run_js
 ./node_modules/.bin/electron scripts/electron-capture-smoke.js    # capture + masking
 ./node_modules/.bin/electron scripts/electron-injection-smoke.js  # action-script injection
+./node_modules/.bin/electron scripts/electron-navigate-smoke.js   # navigate: redirect, failure, mid-load revoke
 ```
 
 **Stack:** Electron + TypeScript, Chromium via `WebContentsView`, the official `@modelcontextprotocol/sdk`, `zod`.
