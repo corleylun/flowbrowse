@@ -10,9 +10,9 @@
     "dev": "npm run build && node node_modules/electron/cli.js .",
     "test": "npm run build && node --test \"dist/**/*.test.js\"",
     "icon": "bash scripts/make-icon.sh",
-    "dist:mac": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false node node_modules/electron-builder/cli.js --mac -c.mac.target=dir",
-    "dist:mac:signed": "npm run build && node node_modules/electron-builder/cli.js --mac -c.mac.notarize=true",
-    "dist:linux": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false node node_modules/electron-builder/cli.js --linux"
+    "dist:mac": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false node node_modules/electron-builder/cli.js --mac --universal -c.mac.target=dir",
+    "dist:mac:signed": "npm run build && node node_modules/electron-builder/cli.js --mac --universal -c.mac.notarize=true",
+    "dist:linux": "npm run build && cross-env CSC_IDENTITY_AUTO_DISCOVERY=false node node_modules/electron-builder/cli.js --linux --x64"
   },
   "build": {
     "appId": "net.flowstations.safecobrowser",
@@ -63,7 +63,7 @@
   "devDependencies": {
     "@types/node": "^26.0.0",
     "cross-env": "^10.1.0",
-    "electron": "^42.4.1",
+    "electron": "^42.11.0",
     "electron-builder": "^26.15.3",
     "typescript": "^6.0.3"
   },
