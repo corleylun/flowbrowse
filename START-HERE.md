@@ -11,6 +11,7 @@ permission. The AI is **off by default**; you stay in control the whole time.
 1. Drag **SafeCoBrowser.app** to `/Applications`.
 2. **Double-click to open** — it's signed & notarized by Apple, so no Gatekeeper warning.
 3. Requires **macOS 12 (Monterey) or later**.
+4. **Universal build** — runs natively on both Apple Silicon (M-series) and Intel Macs. No Rosetta needed.
 
 ## 2. Browse, then invite the AI — per tab
 

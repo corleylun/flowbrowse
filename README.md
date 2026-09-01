@@ -4,7 +4,7 @@
 
 It is the browser where AI joins only when invited: the *permission + audit layer* for letting an AI agent act on your accounts — off by default, granted in the moment, killable instantly, and logged. Your everyday browser stays untouched, and the agent never receives your cookies, saved passwords, or profile.
 
-**Links:** [Website](https://flowstations.net/safecobrowser) · [What is SafeCoBrowser?](https://flowstations.net/safecobrowser/what-is) · [Docs](https://flowstations.net/safecobrowser/docs) · [Claude Code quickstart](https://flowstations.net/safecobrowser/claude-code-quickstart) · [Codex quickstart](https://flowstations.net/safecobrowser/codex-quickstart) · [Download (macOS)](https://flowstations.net/downloads/SafeCoBrowser-2026-08-20.zip)
+**Links:** [Website](https://flowstations.net/safecobrowser) · [What is SafeCoBrowser?](https://flowstations.net/safecobrowser/what-is) · [Docs](https://flowstations.net/safecobrowser/docs) · [Claude Code quickstart](https://flowstations.net/safecobrowser/claude-code-quickstart) · [Codex quickstart](https://flowstations.net/safecobrowser/codex-quickstart) · [Download (macOS)](https://flowstations.net/downloads/SafeCoBrowser-2026-08-27.zip)
 
 > Status: **v1 MVP — engineering-complete and security-reviewed, not yet market-validated.** macOS-first.
 >
