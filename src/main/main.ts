@@ -946,9 +946,10 @@ ipcMain.handle('ai:set-mode', (_e, mode: unknown) => {
     console.warn('[safecobrowser] ignored invalid ai:set-mode value:', mode);
     return;
   }
-  // Any grant/mode change starts a fresh capture window — drop bodies recorded before it so the
-  // agent never reads XHR/fetch responses from the blind period (no retroactive leak).
-  pageController.clearNetworkBody(id);
+  // Any grant/mode change starts a fresh capture window — drop console, network, and XHR/fetch
+  // body buffers recorded before it so the agent never reads Inspect-tier content from the
+  // blind period (no retroactive leak).
+  pageController.clearInspectBuffers(id);
   if (mode === Mode.Blocked) {
     core.sessions.setMode(id, mode);
     autoApproveByTab.delete(id); // dropping to Off resets auto-approve
@@ -969,7 +970,7 @@ ipcMain.handle('ai:set-mode', (_e, mode: unknown) => {
 ipcMain.handle('ai:stop', () => {
   const id = tabModel.activeId();
   core.sessions.revoke(id);
-  pageController.clearNetworkBody(id); // drop captured bodies on revoke too
+  pageController.clearInspectBuffers(id); // drop console/network/body buffers on revoke too
   autoApproveByTab.delete(id); // Stop AI resets auto-approve
   realInputByTab.delete(id); // …and real input
   chromeView?.webContents.send('auto-approve:state', getAutoApprove(id));

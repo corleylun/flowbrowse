@@ -867,6 +867,25 @@ export class ElectronPageController
     if (wc && !wc.isDestroyed()) void wc.executeJavaScript('window.__scbNet = []', false).catch(() => {});
   }
 
+  /**
+   * NO-RETROACTIVE-LEAK HOOK — widened. `clearNetworkBody` above only ever cleared the XHR/fetch BODY ring
+   * (`window.__scbNet`); `consoleBuf`/`networkBuf` were reset only in `attach()` — i.e. on a
+   * fresh page/container switch, NEVER on an `ai:set-mode`/`ai:stop` grant or revoke. That let
+   * `read_console`/`read_network` keep serving content captured during the blind period after a
+   * grant, in violation of the "no retroactive leak" rule (granting AI visibility must never
+   * expose what happened while the tab was blind).
+   *
+   * Clears ALL THREE Inspect buffers a tab can carry — `consoleBuf`, `networkBuf` (both
+   * Electron-main-side, pushed by `attach()`'s listeners), and the page-side `window.__scbNet`
+   * body ring `networkBody()` reads from. Call this (not the narrower `clearNetworkBody`) from
+   * every grant and revoke path.
+   */
+  clearInspectBuffers(tabId: string): void {
+    this.consoleBuf.set(tabId, []);
+    this.networkBuf.set(tabId, []);
+    this.clearNetworkBody(tabId);
+  }
+
   // --- Navigation (Act tier) ---
   /**
    * Load a url in a tab. The url arrives already validated as http(s) and credential-free by
