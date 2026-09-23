@@ -140,3 +140,72 @@ test('CHAR_SETTLE_MS is a fixed constant (scope-line guard)', () => {
   assert.equal(typeof CHAR_SETTLE_MS, 'number');
   assert.equal(CHAR_SETTLE_MS, 12);
 });
+
+// --- No-retroactive-leak: clearInspectBuffers ---
+
+/**
+ * A fake WebContents that models what `attach()` actually wires up: `on('console-message', …)`,
+ * `session.webRequest.onCompleted(…)`, and `on('dom-ready', …)`. `fireConsole`/`fireNetwork`
+ * invoke the captured listeners directly, simulating page activity — exactly what a page does
+ * while the tab is Blocked, before any grant.
+ */
+function makeInspectFake() {
+  const handlers: Record<string, Array<(...args: unknown[]) => void>> = {};
+  const completedHandlers: Array<(details: { method: string; url: string; statusCode: number }) => void> = [];
+  const wc = {
+    isDestroyed: () => false,
+    on(event: string, cb: (...args: unknown[]) => void) {
+      (handlers[event] ??= []).push(cb);
+    },
+    session: {
+      webRequest: {
+        onCompleted(cb: (details: { method: string; url: string; statusCode: number }) => void) {
+          completedHandlers.push(cb);
+        },
+      },
+    },
+    async executeJavaScript() {
+      return null;
+    },
+  };
+  return {
+    wc,
+    fireConsole: (level: string, message: string) =>
+      handlers['console-message']?.forEach((cb) => cb({ level, message })),
+    fireNetwork: (method: string, url: string, statusCode: number) =>
+      completedHandlers.forEach((cb) => cb({ method, url, statusCode })),
+  };
+}
+
+test('clearInspectBuffers: no retroactive leak of console/network from the blind period', async () => {
+  const fake = makeInspectFake();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pc = new ElectronPageController(() => fake.wc as any);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pc.attach('t1', fake.wc as any);
+
+  // Blind period: the tab is Blocked, but the page still logs to console and fires requests
+  // (this is normal page behavior — the block is about AI visibility, not the page itself).
+  fake.fireConsole('log', 'leaked-token-during-blind-period');
+  fake.fireNetwork('GET', 'https://example.com/session?token=leaked-during-blind-period', 200);
+
+  // Sanity: the buffers really did capture the blind-period activity.
+  assert.equal((await pc.console('t1', 100)).length, 1);
+  assert.equal((await pc.network('t1', 100)).length, 1);
+
+  // The AI is now granted Inspect (or any mode) — this is the no-retroactive-leak hook that
+  // must run on every grant (and on revoke) so nothing from before it is visible after.
+  pc.clearInspectBuffers('t1');
+
+  const consoleAfterGrant = await pc.console('t1', 100);
+  const networkAfterGrant = await pc.network('t1', 100);
+  assert.deepEqual(consoleAfterGrant, [], 'read_console must not return blind-period entries after a grant');
+  assert.deepEqual(networkAfterGrant, [], 'read_network must not return blind-period entries after a grant');
+
+  // Activity captured AFTER the grant must still show up — this isn't a "buffers are broken"
+  // regression, only the blind-period content must be gone.
+  fake.fireConsole('log', 'after-grant');
+  fake.fireNetwork('GET', 'https://example.com/after-grant', 200);
+  assert.equal((await pc.console('t1', 100)).length, 1);
+  assert.equal((await pc.network('t1', 100)).length, 1);
+});
