@@ -72,8 +72,16 @@ test('scrollAt emits a mouseWheel with INVERTED deltas (positive dy = scroll dow
 
 test('pressKey emits keyDown+keyUp with the key', async () => {
   const fake = makeFake();
-  await pc(fake).pressKey('t', 'Enter', live);
-  assert.deepEqual(fake.events.map((e) => [e.type, e.keyCode]), [['keyDown', 'Enter'], ['keyUp', 'Enter']]);
+  await pc(fake).pressKey('t', 'Escape', live);
+  assert.deepEqual(fake.events.map((e) => [e.type, e.keyCode]), [['keyDown', 'Escape'], ['keyUp', 'Escape']]);
+});
+
+test('pressKey Enter/Space also emit char — without it Enter never submits a form', async () => {
+  for (const [key, ch] of [['Enter', '\r'], ['Space', ' ']]) {
+    const fake = makeFake();
+    await pc(fake).pressKey('t', key, live);
+    assert.deepEqual(fake.events.map((e) => [e.type, e.keyCode]), [['keyDown', key], ['char', ch], ['keyUp', key]]);
+  }
 });
 
 test('typeText emits keyDown→char→keyUp per char', async () => {
