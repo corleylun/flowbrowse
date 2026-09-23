@@ -18,7 +18,8 @@ import { createNavigateTool } from '../tools/navigate';
 import { createActTools } from '../tools/act';
 import { createCoordinateTools } from '../tools/coordinate';
 import { createDevTools } from '../tools/dev';
-import { ElectronPageController } from './page-controller';
+import { ElectronPageController, type HighlightMark } from './page-controller';
+import { MARKER_FADE_MS, MARKER_HOLD_MS, MARKER_HTML, markerBounds } from './click-marker';
 import { UiApprovalProvider } from './ui-approval';
 import { originOf, isWebOrigin, normalizeUrl } from './nav';
 import { ControlServer } from '../server/control-server';
@@ -116,6 +117,10 @@ interface TabEntry {
 
 let baseWindow: BaseWindow | null = null;
 let chromeView: WebContentsView | null = null;
+// The human-visible click marker (click-marker.ts): one reusable transparent overlay view,
+// stacked above the page and below the chrome, shown briefly where the agent just acted.
+let markerView: WebContentsView | null = null;
+let markerTimer: NodeJS.Timeout | null = null;
 let approvalPending = false;
 let activityOpen = false; // when true, the chrome view grows to show the Activity log panel
 let suggestOpen = false; // when true, the chrome view grows so the URL-bar autocomplete list shows over the page
@@ -266,6 +271,7 @@ const pageController = new ElectronPageController(
     // user's terminal is focused, and the app must never steal focus. Background tabs are detached
     // (showActiveTabOnly) so they genuinely can't receive sendInputEvent → honest JS fallback.
     isActiveTab: (id) => tabModel.activeId() === id,
+    highlight: (id, mark) => showClickMarker(id, mark),
   },
   ocrEngine,
 );
@@ -477,6 +483,33 @@ function layout(): void {
       : CHROME_HEIGHT;
   activeTab()?.view.setBounds({ x: 0, y: CHROME_HEIGHT, width, height: Math.max(0, height - CHROME_HEIGHT) });
   chromeView.setBounds({ x: 0, y: 0, width, height: chromeH });
+}
+
+/** Show the click marker over the ACTIVE tab only — on a background tab it would sit over a
+ *  different page than the one acted on. Cosmetic: any failure here is swallowed. */
+function showClickMarker(tabId: string, mark: HighlightMark): void {
+  if (!baseWindow || !chromeView || tabModel.activeId() !== tabId) return;
+  const tab = tabs.get(tabId);
+  if (!tab) return;
+  try {
+    if (!markerView) {
+      markerView = new WebContentsView({ webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+      markerView.setBackgroundColor('#00000000');
+      markerView.webContents.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(MARKER_HTML));
+    }
+    const page = tab.view.getBounds();
+    markerView.setBounds(markerBounds(mark, page.x, page.y));
+    // Directly under the chrome, so approval cards/menus still cover it.
+    const cv = baseWindow.contentView;
+    if (cv.children.includes(markerView)) cv.removeChildView(markerView);
+    cv.addChildView(markerView, Math.max(0, cv.children.indexOf(chromeView)));
+    markerView.setVisible(true);
+    void markerView.webContents.executeJavaScript(`show(${mark.kind === 'point'})`).catch(() => {});
+    if (markerTimer) clearTimeout(markerTimer);
+    markerTimer = setTimeout(() => markerView?.setVisible(false), MARKER_HOLD_MS + MARKER_FADE_MS);
+  } catch {
+    /* cosmetic only — never let the marker affect the action */
+  }
 }
 
 function showActiveTabOnly(): void {
@@ -854,6 +887,7 @@ function createWindow(): void {
   baseWindow.on('closed', () => {
     baseWindow = null;
     chromeView = null;
+    markerView = null;
     tabs.clear();
   });
 

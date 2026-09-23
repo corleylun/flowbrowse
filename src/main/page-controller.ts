@@ -29,7 +29,32 @@ export interface RealInputHooks {
   realInputFor(tabId: string): boolean;
   /** Whether this tab is the active (foreground/attached) tab — NOT OS window focus. */
   isActiveTab(tabId: string): boolean;
+  /** Show the human-visible click marker over `mark` (page-view DIPs, already zoom-scaled).
+   *  Drawn OUTSIDE the page (main.ts overlays a separate view), so the agent never sees it and
+   *  the page can't touch it. Purely cosmetic — no effect on the action or its result. */
+  highlight(tabId: string, mark: HighlightMark): void;
 }
+
+/** Where the click marker goes, in the tab view's own DIP coordinates. `point` = a ring centred
+ *  on (x, y) for coordinate clicks; `rect` = an outline around an element. */
+export interface HighlightMark {
+  kind: 'rect' | 'point';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A CSS-viewport rect as the page scripts return it; feeds the marker, never the tool result. */
+interface CssRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The `char` event keyCode for allowlisted press_key keys that produce a character. */
+const PRESS_KEY_CHARS: Record<string, string> = { Enter: '\r', Space: ' ' };
 
 const coord = (cssPx: number, zoom: number): number => Math.round(cssPx * zoom);
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
@@ -156,7 +181,15 @@ export class ElectronPageController
     this.hooks = {
       realInputFor: hooks?.realInputFor ?? (() => false),
       isActiveTab: hooks?.isActiveTab ?? (() => true),
+      highlight: hooks?.highlight ?? (() => {}),
     };
+  }
+
+  /** Marks the element an action targeted, for the human (`RealInputHooks.highlight`). */
+  private markRect(tabId: string, r: CssRect | undefined): void {
+    if (!r || !(r.w > 0 && r.h > 0)) return;
+    const z = this.wc(tabId).getZoomFactor();
+    this.hooks.highlight(tabId, { kind: 'rect', x: r.x * z, y: r.y * z, w: r.w * z, h: r.h * z });
   }
 
   /**
@@ -297,6 +330,7 @@ export class ElectronPageController
       return { clicked: false, matched: pt.matched, realInput: true, note: 'target obscured by another element; not clicked' };
     }
     ensureLive(live);
+    this.markRect(tabId, pt.rect);
     this.mouseClick(wc, pt.x, pt.y);
     return { clicked: true, matched: pt.matched, realInput: true };
   }
@@ -313,7 +347,7 @@ export class ElectronPageController
     selector: string,
     label: string | undefined,
     kind: 'clickable' | 'field',
-  ): Promise<{ found: boolean; obscured: boolean; matched: string; x: number; y: number }> {
+  ): Promise<{ found: boolean; obscured: boolean; matched: string; x: number; y: number; rect?: CssRect }> {
     const candSel =
       kind === 'field'
         ? 'input, textarea, select, [contenteditable="true"]'
@@ -337,7 +371,7 @@ export class ElectronPageController
       // Occlusion: the point must resolve to our element (or a child), else something covers it.
       const hit = document.elementFromPoint(x, y);
       const obscured = !(hit && (hit === el || el.contains(hit) || (hit.contains && hit.contains(el))));
-      return { found: true, obscured, matched, x, y };
+      return { found: true, obscured, matched, x, y, rect: { x: r.left, y: r.top, w: r.width, h: r.height } };
     })()`;
     const raw = (await this.wc(tabId).executeJavaScript(js, true)) as {
       found: boolean;
@@ -345,6 +379,7 @@ export class ElectronPageController
       matched: string;
       x: number;
       y: number;
+      rect?: CssRect;
     };
     const zoom = this.wc(tabId).getZoomFactor();
     return { ...raw, x: coord(raw.x, zoom), y: coord(raw.y, zoom) };
@@ -374,10 +409,13 @@ export class ElectronPageController
       if (!el) return { clicked: false, matched: '' };
       const label = norm(el.innerText || el.value || el.getAttribute('aria-label') || el.tagName).slice(0, 100);
       el.scrollIntoView({ block: 'center', inline: 'center' });
+      const rb = el.getBoundingClientRect(); const rect = { x: rb.left, y: rb.top, w: rb.width, h: rb.height };
       el.click();
-      return { clicked: true, matched: label };
+      return { clicked: true, matched: label, rect };
     })()`;
-    return (await this.wc(tabId).executeJavaScript(js, true)) as ClickResult;
+    const { rect, ...result } = (await this.wc(tabId).executeJavaScript(js, true)) as ClickResult & { rect?: CssRect };
+    if (result.clicked) this.markRect(tabId, rect);
+    return result;
   }
 
   async fill(tabId: string, selector: string, value: string, label?: string, live?: Liveness): Promise<FillResult> {
@@ -393,6 +431,7 @@ export class ElectronPageController
       return { ...(await this.jsFill(tabId, selector, value, label)), realInput: false, note: 'field obscured; used JS' };
     }
     ensureLive(live);
+    this.markRect(tabId, pt.rect);
     this.mouseClick(wc, pt.x, pt.y); // real click to focus the field
     await this.selectAllInFocused(tabId); // clear via programmatic selection — NOT a Cmd/Ctrl+A chord
     await this.typeChars(wc, value, live); // per-char real keystrokes, re-checking liveness each char
@@ -489,6 +528,7 @@ export class ElectronPageController
       if (!el) return { filled: false, matched: '' };
       const matched = (el.name || el.id || el.tagName || '').toString();
       el.focus();
+      const rb = el.getBoundingClientRect(); const rect = { x: rb.left, y: rb.top, w: rb.width, h: rb.height };
 
       // Pass 1 — plain write (fast path).
       if (el.isContentEditable) { el.textContent = target; }
@@ -496,7 +536,7 @@ export class ElectronPageController
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       await tick();
-      if (landed(el)) return { filled: true, matched };
+      if (landed(el)) return { filled: true, matched, rect };
 
       // Pass 2 — editor-aware insert for fields that discarded pass 1.
       try {
@@ -524,17 +564,20 @@ export class ElectronPageController
         }
       } catch (_) { /* fall through to an honest read-back */ }
       await tick();
-      if (landed(el)) return { filled: true, matched };
+      if (landed(el)) return { filled: true, matched, rect };
 
       return {
         filled: false,
         matched,
+        rect,
         note: el.isContentEditable
           ? 'value did not land — this rich-text editor rejected direct, paste, and insertText writes; use run_js or ask the user to paste.'
           : 'value did not land in the field (it may be readonly, disabled, or reset/validated by the page).',
       };
     })()`;
-    return (await this.wc(tabId).executeJavaScript(js, true)) as FillResult;
+    const { rect, ...result } = (await this.wc(tabId).executeJavaScript(js, true)) as FillResult & { rect?: CssRect };
+    this.markRect(tabId, rect);
+    return result;
   }
 
   async submit(tabId: string, selector: string, label?: string): Promise<SubmitResult> {
@@ -610,6 +653,7 @@ export class ElectronPageController
     const p = await this.devicePoint(tabId, x, y);
     ensureLive(live);
     const wc = this.wc(tabId);
+    this.hooks.highlight(tabId, { kind: 'point', x: p.dx, y: p.dy, w: 0, h: 0 });
     wc.sendInputEvent({ type: 'mouseMove', x: p.dx, y: p.dy });
     wc.sendInputEvent({ type: 'mouseDown', x: p.dx, y: p.dy, button, clickCount: 1 });
     wc.sendInputEvent({ type: 'mouseUp', x: p.dx, y: p.dy, button, clickCount: 1 });
@@ -642,6 +686,12 @@ export class ElectronPageController
     ensureLive(live);
     const wc = this.wc(tabId);
     wc.sendInputEvent({ type: 'keyDown', keyCode: key });
+    // Keys that produce a character need the `char` event too: Chromium fires `keypress` — and so
+    // does implicit form submission on Enter, and a space in a text field — only from `char`, not
+    // from keyDown. Without it, press_key Enter reported done:true while the search form never
+    // submitted (found driving a live search box).
+    const ch = PRESS_KEY_CHARS[key];
+    if (ch) wc.sendInputEvent({ type: 'char', keyCode: ch });
     wc.sendInputEvent({ type: 'keyUp', keyCode: key });
     return { done: true, realInput: true };
   }
