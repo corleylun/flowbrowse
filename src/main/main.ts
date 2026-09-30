@@ -20,6 +20,7 @@ import { createCoordinateTools } from '../tools/coordinate';
 import { createDevTools } from '../tools/dev';
 import { ElectronPageController, type HighlightMark } from './page-controller';
 import { MARKER_FADE_MS, MARKER_HOLD_MS, MARKER_HTML, markerBounds } from './click-marker';
+import { AgentReplayRecorder, AgentReplayStore, type ReplayFrame, type ReplayStep } from './agent-replays';
 import { UiApprovalProvider } from './ui-approval';
 import { originOf, isWebOrigin, normalizeUrl } from './nav';
 import { ControlServer } from '../server/control-server';
@@ -271,7 +272,10 @@ const pageController = new ElectronPageController(
     // user's terminal is focused, and the app must never steal focus. Background tabs are detached
     // (showActiveTabOnly) so they genuinely can't receive sendInputEvent → honest JS fallback.
     isActiveTab: (id) => tabModel.activeId() === id,
-    highlight: (id, mark) => showClickMarker(id, mark),
+    highlight: (id, mark) => {
+      showClickMarker(id, mark);
+      agentReplayRecorder.noteTarget(id, { ...mark }); // same DIP space the frame is captured in
+    },
   },
   ocrEngine,
 );
@@ -369,8 +373,79 @@ function toUiAudit(rec: SealedRecord) {
     detail: e.detail,
   };
 }
-// Stream each new AI decision to the in-app Activity panel.
-auditSink.onRecord((rec) => chromeView?.webContents.send('audit:event', toUiAudit(rec)));
+// Stream each new AI decision to the in-app Activity panel, and to the agent-replay recorder.
+auditSink.onRecord((rec) => {
+  chromeView?.webContents.send('audit:event', toUiAudit(rec));
+  agentReplayRecorder.handle(rec.event);
+});
+
+// --- Agent replays (agent-replays.ts) — a watch-only visual record of the agent's allowed
+// effectful actions. HUMAN-ONLY: no tool reads it, and its IPC answers only the chrome view.
+const REPLAY_MAX_FRAME_W = 1600;
+const agentReplays = new AgentReplayStore(path.join(safecobrowserDir(), 'agent-replays'));
+agentReplays.prune(Date.now());
+const replayFrames = {
+  async capture(tabId: string): Promise<ReplayFrame | null> {
+    const tab = tabs.get(tabId);
+    const wc = tab?.view.webContents;
+    if (!tab || !wc || wc.isDestroyed()) return null;
+    const img = await wc.capturePage();
+    if (img.isEmpty()) return null; // a hidden (background) view captures nothing — honest, no frame
+    const { width } = img.getSize();
+    const scaled = width > REPLAY_MAX_FRAME_W ? img.resize({ width: REPLAY_MAX_FRAME_W, quality: 'good' }) : img;
+    const b = tab.view.getBounds(); // DIPs — the space the click marks are expressed in
+    return { jpeg: scaled.toJPEG(70), viewWidth: b.width, viewHeight: b.height, url: wc.getURL(), title: wc.getTitle() };
+  },
+  async settle(tabId: string): Promise<void> {
+    // The recorder's own wait, off the tool path — the agent is never slowed by it.
+    const start = Date.now();
+    await new Promise((r) => setTimeout(r, 300));
+    while (Date.now() - start < 4000 && tabs.get(tabId)?.view.webContents.isLoading()) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  },
+};
+// `replaying` (the human's own recipe replay) is declared further down; read at call time only.
+const agentReplayRecorder = new AgentReplayRecorder(agentReplays, replayFrames, () => !replaying);
+agentReplays.onChange(() => chromeView?.webContents.send('replays:changed'));
+
+/** Replay IPC answers the chrome UI only — never a page (which has no route here anyway). */
+const fromChrome = (e: Electron.IpcMainInvokeEvent): boolean => !!chromeView && e.sender === chromeView.webContents;
+const redactStep = (st: ReplayStep): ReplayStep => ({
+  ...st,
+  ...(st.detail !== undefined ? { detail: privacy.redact(st.detail) } : {}),
+  ...(st.url !== undefined ? { url: privacy.redact(st.url) } : {}),
+  ...(st.title !== undefined ? { title: privacy.redact(st.title) } : {}),
+});
+ipcMain.handle('replays:list', (e) =>
+  fromChrome(e)
+    ? {
+        enabled: agentReplays.enabled,
+        sessions: agentReplays.listSessions().map((s) => ({ ...s, title: privacy.redact(s.title) })),
+      }
+    : { enabled: false, sessions: [] },
+);
+ipcMain.handle('replays:steps', (e, id: unknown) => (fromChrome(e) ? agentReplays.steps(id).map(redactStep) : []));
+ipcMain.handle('replays:frame', (e, id: unknown, name: unknown) => {
+  if (!fromChrome(e)) return null;
+  const p = agentReplays.framePath(id, name);
+  if (!p) return null;
+  try {
+    return 'data:image/jpeg;base64,' + fs.readFileSync(p).toString('base64');
+  } catch {
+    return null;
+  }
+});
+ipcMain.handle('replays:delete', (e, id: unknown) => {
+  if (fromChrome(e)) agentReplays.delete(id);
+});
+ipcMain.handle('replays:delete-all', (e) => {
+  if (fromChrome(e)) agentReplays.deleteAll();
+});
+ipcMain.handle('replays:set-enabled', (e, on: unknown) => {
+  if (fromChrome(e)) agentReplays.setEnabled(on === true);
+});
 
 function validRecordedAction(a: unknown): a is RecordedAction {
   if (!a || typeof a !== 'object') return false;

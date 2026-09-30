@@ -165,6 +165,36 @@ export interface DownloadRecord {
   startedAt: number;
 }
 
+/** Agent replays — see src/main/agent-replays.ts. Human-only. */
+export interface ReplayMarkData {
+  kind: 'rect' | 'point';
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+export interface ReplaySessionData {
+  id: string;
+  tabId: string;
+  startedAt: number;
+  updatedAt: number;
+  stepCount: number;
+  title: string;
+}
+export interface ReplayStepData {
+  index: number;
+  ts: number;
+  tool: string;
+  detail?: string;
+  url?: string;
+  title?: string;
+  frame?: string;
+  mark?: ReplayMarkData;
+  afterFrame?: string;
+  viewWidth: number;
+  viewHeight: number;
+}
+
 contextBridge.exposeInMainWorld('safecobrowser', {
   // Navigation
   go: (url: string): Promise<void> => ipcRenderer.invoke('nav:go', url),
@@ -312,6 +342,17 @@ contextBridge.exposeInMainWorld('safecobrowser', {
     ipcRenderer.invoke('agent:set-port', port),
   setAgentLan: (on: boolean): Promise<AgentEndpoint & { ok: boolean; error?: string }> =>
     ipcRenderer.invoke('agent:set-lan', on),
+
+  // Agent replays (watch-only record of the agent's actions).
+  listReplays: (): Promise<{ enabled: boolean; sessions: ReplaySessionData[] }> => ipcRenderer.invoke('replays:list'),
+  replaySteps: (id: string): Promise<ReplayStepData[]> => ipcRenderer.invoke('replays:steps', id),
+  replayFrame: (id: string, name: string): Promise<string | null> => ipcRenderer.invoke('replays:frame', id, name),
+  deleteReplay: (id: string): Promise<void> => ipcRenderer.invoke('replays:delete', id),
+  deleteAllReplays: (): Promise<void> => ipcRenderer.invoke('replays:delete-all'),
+  setReplaysEnabled: (on: boolean): Promise<void> => ipcRenderer.invoke('replays:set-enabled', on),
+  onReplaysChanged: (cb: () => void): void => {
+    ipcRenderer.on('replays:changed', () => cb());
+  },
 
   // Activity log.
   getRecentAudit: (): Promise<AuditRecord[]> => ipcRenderer.invoke('audit:recent'),
