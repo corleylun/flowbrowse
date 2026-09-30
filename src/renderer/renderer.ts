@@ -147,6 +147,28 @@ interface FindResult {
   matches: number;
 }
 
+interface ReplaySessionData {
+  id: string;
+  tabId: string;
+  startedAt: number;
+  updatedAt: number;
+  stepCount: number;
+  title: string;
+}
+interface ReplayStepData {
+  index: number;
+  ts: number;
+  tool: string;
+  detail?: string;
+  url?: string;
+  title?: string;
+  frame?: string;
+  mark?: { kind: 'rect' | 'point'; x: number; y: number; w: number; h: number };
+  afterFrame?: string;
+  viewWidth: number;
+  viewHeight: number;
+}
+
 interface SafeCoBrowserApi {
   go(url: string): Promise<void>;
   suggest(query: string): Promise<UrlSuggestion[]>;
@@ -207,6 +229,13 @@ interface SafeCoBrowserApi {
   switchTab(id: string): Promise<void>;
   onTabState(cb: (state: TabState) => void): void;
   getRecentAudit(): Promise<AuditRecord[]>;
+  listReplays(): Promise<{ enabled: boolean; sessions: ReplaySessionData[] }>;
+  replaySteps(id: string): Promise<ReplayStepData[]>;
+  replayFrame(id: string, name: string): Promise<string | null>;
+  deleteReplay(id: string): Promise<void>;
+  deleteAllReplays(): Promise<void>;
+  setReplaysEnabled(on: boolean): Promise<void>;
+  onReplaysChanged(cb: () => void): void;
   onAuditEvent(cb: (rec: AuditRecord) => void): void;
   setActivityOpen(open: boolean): Promise<void>;
   setModalOpen(open: boolean): Promise<void>;
@@ -1358,6 +1387,251 @@ function closeDownloads(): void {
 }
 
 downloadsBtn.addEventListener('click', () => void openDownloads());
+
+// --- agent replays (watch-only; main redacts every text field before it reaches us) ---
+const rpModal = el('replays-modal');
+const rpSessions = el('rp-sessions');
+const rpBody = el('rp-body');
+const rpEmpty = el('rp-empty');
+const rpFrame = el('rp-frame') as HTMLImageElement;
+const rpMark = el('rp-mark');
+const rpCaption = el('rp-caption');
+const rpUrl = el('rp-url');
+const rpSlider = el('rp-slider') as HTMLInputElement;
+const rpPlay = el('rp-play') as HTMLButtonElement;
+const rpDeleteAll = el('rp-delete-all') as HTMLButtonElement;
+const RP_PLAY_MS = 1500; // fixed — a replay is for reading
+let rpOpen = false;
+let rpEnabled = true;
+let rpList: ReplaySessionData[] = [];
+let rpSelected: string | null = null;
+/** Each step contributes its AT-action frame (if any), then its RESULT frame. */
+let rpSlides: { step: ReplayStepData; result: boolean }[] = [];
+let rpIndex = 0;
+let rpTimer: number | undefined;
+let rpDeleteArmed = false;
+let rpShowToken = 0;
+
+function rpBuildSlides(steps: ReplayStepData[]): void {
+  rpSlides = [];
+  for (const st of steps) {
+    if (st.frame) rpSlides.push({ step: st, result: false });
+    if (st.afterFrame || !st.frame) rpSlides.push({ step: st, result: true });
+  }
+}
+
+function rpRenderSessions(): void {
+  rpSessions.replaceChildren();
+  for (const s of rpList) {
+    const row = document.createElement('div');
+    row.className = 'rp-sess' + (s.id === rpSelected ? ' sel' : '');
+    const t = document.createElement('div');
+    t.className = 'rp-t';
+    t.textContent = redactDisplay(s.title || 'Untitled page');
+    const m = document.createElement('div');
+    m.className = 'rp-m';
+    const info = document.createElement('span');
+    info.textContent = `${new Date(s.startedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · ${s.stepCount} step${s.stepCount === 1 ? '' : 's'}`;
+    const del = document.createElement('button');
+    del.className = 'rp-del';
+    del.textContent = 'Delete';
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      void jt.deleteReplay(s.id);
+    });
+    m.append(info, del);
+    row.append(t, m);
+    row.addEventListener('click', () => void rpSelect(s.id));
+    rpSessions.appendChild(row);
+  }
+}
+
+async function rpShow(): Promise<void> {
+  const token = ++rpShowToken;
+  const slide = rpSlides[rpIndex];
+  rpSlider.max = String(Math.max(0, rpSlides.length - 1));
+  rpSlider.value = String(rpIndex);
+  if (!slide || !rpSelected) {
+    rpFrame.removeAttribute('src');
+    rpMark.style.display = 'none';
+    rpCaption.textContent = '';
+    rpUrl.textContent = '';
+    return;
+  }
+  const st = slide.step;
+  const name = slide.result ? st.afterFrame : st.frame;
+  const src = name ? await jt.replayFrame(rpSelected, name) : null;
+  if (token !== rpShowToken) return; // a newer step was requested meanwhile
+  if (src) rpFrame.src = src;
+  else rpFrame.removeAttribute('src');
+
+  rpCaption.replaceChildren();
+  const n = document.createElement('strong');
+  n.textContent = `Step ${st.index} of ${rpSlides.length ? rpSlides[rpSlides.length - 1].step.index : 0}`;
+  const tool = document.createElement('span');
+  tool.className = 'rp-tool';
+  tool.textContent = st.tool;
+  const phase = document.createElement('span');
+  phase.className = 'rp-phase' + (slide.result ? '' : ' at');
+  phase.textContent = slide.result ? 'result' : 'at action';
+  const detail = document.createElement('span');
+  detail.className = 'rp-detail';
+  detail.textContent = st.detail ? redactDisplay(st.detail) : '';
+  const time = document.createElement('span');
+  time.className = 'rp-time';
+  time.textContent = new Date(st.ts).toLocaleTimeString();
+  rpCaption.append(n, tool, phase, detail, time);
+  if (!src) {
+    const none = document.createElement('span');
+    none.textContent = '(no frame captured for this step)';
+    rpCaption.appendChild(none);
+  }
+  rpUrl.textContent = st.url ? redactDisplay(st.url) : '';
+  rpPositionMark();
+}
+
+/** Re-draw the target outline over the frame at its displayed scale. */
+function rpPositionMark(): void {
+  const slide = rpSlides[rpIndex];
+  const m = slide && !slide.result ? slide.step.mark : undefined;
+  if (!m || !rpFrame.src || !slide.step.viewWidth || !rpFrame.clientWidth) {
+    rpMark.style.display = 'none';
+    return;
+  }
+  const k = rpFrame.clientWidth / slide.step.viewWidth;
+  const o = 3;
+  const ring = m.kind === 'point';
+  const w = ring ? 28 : m.w * k + 2 * o;
+  const h = ring ? 28 : m.h * k + 2 * o;
+  const x = ring ? m.x * k - 14 : m.x * k - o;
+  const y = ring ? m.y * k - 14 : m.y * k - o;
+  rpMark.className = ring ? 'ring' : '';
+  Object.assign(rpMark.style, { display: 'block', left: `${x + 1}px`, top: `${y + 1}px`, width: `${w}px`, height: `${h}px` });
+}
+rpFrame.addEventListener('load', rpPositionMark);
+window.addEventListener('resize', rpPositionMark);
+
+function rpStop(): void {
+  window.clearInterval(rpTimer);
+  rpTimer = undefined;
+  rpPlay.textContent = '▶';
+}
+function rpGo(i: number): void {
+  rpIndex = Math.max(0, Math.min(rpSlides.length - 1, i));
+  void rpShow();
+}
+function rpTogglePlay(): void {
+  if (rpTimer !== undefined) return rpStop();
+  if (rpIndex >= rpSlides.length - 1) rpGo(0);
+  rpPlay.textContent = '❚❚';
+  rpTimer = window.setInterval(() => {
+    if (rpIndex >= rpSlides.length - 1) return rpStop();
+    rpGo(rpIndex + 1);
+  }, RP_PLAY_MS);
+}
+
+async function rpSelect(id: string, keepIndex = false): Promise<void> {
+  rpStop();
+  rpSelected = id;
+  rpBuildSlides(await jt.replaySteps(id));
+  rpIndex = keepIndex ? Math.min(rpIndex, Math.max(0, rpSlides.length - 1)) : 0;
+  rpRenderSessions();
+  void rpShow();
+}
+
+function rpResetDeleteAll(): void {
+  rpDeleteArmed = false;
+  rpDeleteAll.textContent = 'Delete all';
+  rpDeleteAll.classList.remove('danger');
+}
+
+async function rpRefresh(): Promise<void> {
+  const r = await jt.listReplays();
+  rpEnabled = r.enabled;
+  rpList = r.sessions;
+  const replayCount = document.getElementById('rp-count');
+  if (replayCount) replayCount.textContent = String(rpList.length);
+  const toggle = document.getElementById('rp-enabled') as HTMLInputElement | null;
+  if (toggle) toggle.checked = rpEnabled;
+  if (!rpOpen) return;
+  const empty = rpList.length === 0;
+  rpBody.style.display = empty ? 'none' : 'flex';
+  rpEmpty.style.display = empty ? 'flex' : 'none';
+  rpDeleteAll.style.display = empty ? 'none' : '';
+  rpEmpty.textContent = rpEnabled
+    ? 'No agent activity recorded yet. When an AI agent clicks, types or navigates in a tab you have granted, each step is recorded here so you can watch it back.'
+    : 'Recording is off. Turn on “Record agent actions” in Settings.';
+  if (empty) {
+    rpSelected = null;
+    rpSlides = [];
+    return;
+  }
+  if (!rpSelected || !rpList.some((s) => s.id === rpSelected)) await rpSelect(rpList[0].id);
+  else await rpSelect(rpSelected, true); // a live session gained a step: stay where we are
+}
+
+async function openReplays(): Promise<void> {
+  rpOpen = true;
+  rpResetDeleteAll();
+  rpModal.classList.add('show');
+  void jt.setModalOpen(true);
+  await rpRefresh();
+}
+function closeReplays(): void {
+  rpOpen = false;
+  rpStop();
+  rpModal.classList.remove('show');
+  void jt.setModalOpen(false);
+}
+
+el('replays-btn').addEventListener('click', () => void openReplays());
+el('rp-close').addEventListener('click', closeReplays);
+el('rp-prev').addEventListener('click', () => {
+  rpStop();
+  rpGo(rpIndex - 1);
+});
+el('rp-next').addEventListener('click', () => {
+  rpStop();
+  rpGo(rpIndex + 1);
+});
+rpPlay.addEventListener('click', rpTogglePlay);
+rpSlider.addEventListener('input', () => {
+  rpStop();
+  rpGo(Number(rpSlider.value));
+});
+rpDeleteAll.addEventListener('click', () => {
+  if (!rpDeleteArmed) {
+    rpDeleteArmed = true;
+    rpDeleteAll.textContent = 'Click again to delete all';
+    rpDeleteAll.classList.add('danger');
+    window.setTimeout(rpResetDeleteAll, 4000);
+    return;
+  }
+  rpResetDeleteAll();
+  void jt.deleteAllReplays();
+});
+document.addEventListener('keydown', (e: KeyboardEvent) => {
+  if (!rpOpen) return;
+  if (e.key === 'ArrowLeft') {
+    rpStop();
+    rpGo(rpIndex - 1);
+  } else if (e.key === 'ArrowRight') {
+    rpStop();
+    rpGo(rpIndex + 1);
+  } else if (e.key === ' ') {
+    rpTogglePlay();
+  } else if (e.key === 'Escape') {
+    closeReplays();
+  } else {
+    return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+});
+jt.onReplaysChanged(() => void rpRefresh());
+(document.getElementById('rp-enabled') as HTMLInputElement).addEventListener('change', (e) => {
+  void jt.setReplaysEnabled((e.target as HTMLInputElement).checked);
+});
 dlClose.addEventListener('click', closeDownloads);
 dlClear.addEventListener('click', () => void jt.clearDownloads());
 dlModal.addEventListener('mousedown', (e) => {
@@ -1667,6 +1941,7 @@ function openSettings(): void {
     renderAgent();
   });
   void refreshHistoryCount();
+  void rpRefresh(); // replay count + toggle in the Agent replays section
 }
 
 const historyCountEl = el('history-count');

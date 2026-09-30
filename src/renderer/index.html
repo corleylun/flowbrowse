@@ -571,6 +571,46 @@
         font-family: -apple-system, sans-serif;
       }
 
+      /* agent replays viewer */
+      #replays-modal .rp-sheet {
+        width: min(1100px, 92vw);
+        height: min(760px, 88vh);
+        display: flex;
+        flex-direction: column;
+        border-radius: 12px;
+        background: Canvas;
+        border: 1px solid color-mix(in srgb, CanvasText 20%, transparent);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+        overflow: hidden;
+      }
+      .rp-head { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
+      .rp-head h2 { margin: 0; font-size: 15px; font-weight: 700; flex: 1; }
+      .rp-body { flex: 1; display: flex; min-height: 0; }
+      #rp-sessions { width: 240px; overflow-y: auto; border-right: 1px solid color-mix(in srgb, CanvasText 12%, transparent); }
+      .rp-sess { padding: 8px 12px; cursor: pointer; font-size: 12px; border-bottom: 1px solid color-mix(in srgb, CanvasText 6%, transparent); }
+      .rp-sess.sel { background: color-mix(in srgb, #3366ff 18%, transparent); }
+      .rp-sess .rp-t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .rp-sess .rp-m { opacity: 0.6; font-size: 11px; display: flex; justify-content: space-between; gap: 6px; }
+      .rp-sess .rp-del { border: none; background: none; color: inherit; opacity: 0.5; cursor: pointer; font-size: 11px; padding: 0; }
+      .rp-sess .rp-del:hover { opacity: 1; color: #ff453a; }
+      .rp-view { flex: 1; display: flex; flex-direction: column; min-width: 0; padding: 12px; gap: 8px; }
+      #rp-stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
+      #rp-frame-wrap { position: relative; line-height: 0; }
+      #rp-frame-wrap { max-width: 100%; }
+      #rp-frame { max-width: 100%; max-height: calc(min(760px, 88vh) - 170px); display: block; border: 1px solid color-mix(in srgb, CanvasText 20%, transparent); }
+      #rp-mark { position: absolute; border: 3px solid #ff9500; background: rgba(255, 149, 0, 0.18); border-radius: 4px; box-sizing: border-box; pointer-events: none; display: none; }
+      #rp-mark.ring { border-radius: 50%; }
+      #rp-caption { font-size: 12px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+      #rp-caption .rp-tool { font-family: ui-monospace, Menlo, monospace; }
+      #rp-caption .rp-phase { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 8px; background: color-mix(in srgb, CanvasText 12%, transparent); }
+      #rp-caption .rp-phase.at { background: rgba(255, 149, 0, 0.25); }
+      #rp-caption .rp-detail { opacity: 0.8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 50%; }
+      #rp-caption .rp-time { margin-left: auto; opacity: 0.6; font-size: 11px; }
+      #rp-url { font-size: 11px; opacity: 0.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .rp-controls { display: flex; align-items: center; gap: 8px; }
+      .rp-controls input[type=range] { flex: 1; }
+      #rp-empty { flex: 1; display: flex; align-items: center; justify-content: center; text-align: center; opacity: 0.7; font-size: 13px; padding: 24px; }
+
       /* approval card */
       #approval {
         position: fixed;
@@ -671,6 +711,7 @@
       #downloads-modal,
       #bookmarks-modal,
       #privacy-modal,
+      #replays-modal,
       #settings-modal {
         position: fixed;
         inset: 0;
@@ -687,6 +728,7 @@
       #downloads-modal.show,
       #bookmarks-modal.show,
       #privacy-modal.show,
+      #replays-modal.show,
       #settings-modal.show { display: flex; }
       #container-modal .sheet,
       #manage-modal .sheet,
@@ -1210,6 +1252,7 @@
         <span class="act-spacer"></span>
         <button id="act-filter-tab" class="filt active">This tab</button>
         <button id="act-filter-all" class="filt">All tabs</button>
+        <button id="replays-btn" class="recbtn" title="Watch back what the agent did — one frame per action">▶ Replays</button>
         <button id="activity-close" class="filt" title="Close">✕</button>
       </div>
       <div id="activity-list"></div>
@@ -1322,6 +1365,31 @@
       </div>
     </div>
 
+    <div id="replays-modal">
+      <div class="rp-sheet">
+        <div class="rp-head">
+          <h2>Agent Replays</h2>
+          <button id="rp-delete-all" class="recbtn">Delete all</button>
+          <button id="rp-close" class="recbtn primary">Done</button>
+        </div>
+        <div id="rp-empty"></div>
+        <div class="rp-body" id="rp-body">
+          <div id="rp-sessions"></div>
+          <div class="rp-view">
+            <div id="rp-stage"><div id="rp-frame-wrap"><img id="rp-frame" alt="replay frame" /><div id="rp-mark"></div></div></div>
+            <div id="rp-caption"></div>
+            <div id="rp-url"></div>
+            <div class="rp-controls">
+              <button id="rp-prev" class="recbtn" title="Previous (←)">‹</button>
+              <button id="rp-play" class="recbtn" title="Play / pause (Space)">▶</button>
+              <button id="rp-next" class="recbtn" title="Next (→)">›</button>
+              <input id="rp-slider" type="range" min="0" max="0" step="1" value="0" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="settings-modal">
       <div class="sheet wide">
         <h2>Settings</h2>
@@ -1355,6 +1423,13 @@
           <div class="set-row">
             <button id="history-clear" class="recbtn">Clear history</button>
           </div>
+        </div>
+
+        <div class="set-section">
+          <div class="set-h">Agent replays</div>
+          <p>Saves a frame each time an AI agent clicks, types or navigates in a tab you granted, so you can watch it back from Activity → Replays. Nothing is re-run. Stored locally and <b>never shown to the agent</b>. Kept 7 days (newest 50 sessions).</p>
+          <label class="pv-enable"><input type="checkbox" id="rp-enabled" /> Record agent actions</label>
+          <div class="set-current"><span>Recorded sessions:</span> <span id="rp-count">0</span></div>
         </div>
 
         <div class="set-section">
