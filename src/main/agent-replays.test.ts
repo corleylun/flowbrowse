@@ -157,6 +157,31 @@ test('recorder: a targeted click keeps its AT frame + mark and adds a RESULT fra
   assert.equal(rec.pendingTabs().length, 0);
 });
 
+test('recorder: the caption URL of an AT-action frame is the page BEFORE the click, not where it led', async () => {
+  const store = new AgentReplayStore(tmp());
+  const rec = new AgentReplayRecorder(store, frames(), () => true);
+  rec.noteTarget('t1', { kind: 'rect', x: 1, y: 2, w: 3, h: 4 }); // 1st capture: https://example.com/1
+  rec.handle(ev()); // RESULT capture afterwards: https://example.com/2
+  await rec.drain();
+  const [step] = store.steps(store.listSessions()[0].id);
+  assert.equal(step.atUrl, 'https://example.com/1');
+  assert.equal(step.url, 'https://example.com/2');
+});
+
+test('store: a step without a frame stores no atUrl; an older recording without one still loads', () => {
+  const store = new AgentReplayStore(tmp());
+  const nav = add(store, { tool: 'navigate', frameJpeg: undefined, afterJpeg: jpg(3), atUrl: 'https://example.com/x' })!;
+  assert.equal(nav.atUrl, undefined);
+  const root = tmp();
+  const dir = path.join(root, '1-t1-e1');
+  fs.mkdirSync(dir);
+  fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ id: '1-t1-e1', tabId: 't1', epoch: 1, startedAt: 1, updatedAt: 1, stepCount: 1, title: '' }));
+  fs.writeFileSync(path.join(dir, 'steps.jsonl'), JSON.stringify({ index: 1, ts: 1, tool: 'click', url: 'https://old/', frame: '1.jpg', viewWidth: 1, viewHeight: 1 }) + '\n');
+  const old = new AgentReplayStore(root).steps('1-t1-e1');
+  assert.equal(old[0].atUrl, undefined);
+  assert.equal(old[0].url, 'https://old/');
+});
+
 test('recorder: denied calls and reads record nothing', async () => {
   const store = new AgentReplayStore(tmp());
   const rec = new AgentReplayRecorder(store, frames(), () => true);

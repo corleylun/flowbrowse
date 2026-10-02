@@ -187,6 +187,7 @@ export interface ReplayStepData {
   tool: string;
   detail?: string;
   url?: string;
+  atUrl?: string;
   title?: string;
   frame?: string;
   mark?: ReplayMarkData;

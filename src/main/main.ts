@@ -416,6 +416,7 @@ const redactStep = (st: ReplayStep): ReplayStep => ({
   ...st,
   ...(st.detail !== undefined ? { detail: privacy.redact(st.detail) } : {}),
   ...(st.url !== undefined ? { url: privacy.redact(st.url) } : {}),
+  ...(st.atUrl !== undefined ? { atUrl: privacy.redact(st.atUrl) } : {}),
   ...(st.title !== undefined ? { title: privacy.redact(st.title) } : {}),
 });
 ipcMain.handle('replays:list', (e) =>
