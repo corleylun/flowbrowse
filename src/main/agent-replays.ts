@@ -63,8 +63,13 @@ export interface ReplayStep {
   tool: string;
   /** The audit record's own detail — already redacted upstream. */
   detail?: string;
+  /** The page's URL when the RESULT frame was captured — for a click that navigates, the page it LED
+   *  to. The AT-action frame shows an earlier page; see `atUrl`. */
   url?: string;
   title?: string;
+  /** The page's URL when the AT-action frame was captured, so the caption matches that frame. Absent
+   *  on older recordings — the viewer then falls back to `url`. */
+  atUrl?: string;
   /** Frame AT the action (target marked by `mark`); only for tools with a target. */
   frame?: string;
   mark?: ReplayMark;
@@ -118,6 +123,7 @@ export interface AppendInput {
   frameJpeg?: Buffer;
   mark?: ReplayMark;
   afterJpeg?: Buffer;
+  atUrl?: string;
   viewWidth: number;
   viewHeight: number;
 }
@@ -228,6 +234,7 @@ export class AgentReplayStore {
       ...(i.title !== undefined ? { title: i.title } : {}),
       ...(frame ? { frame } : {}),
       ...(frame && i.mark ? { mark: i.mark } : {}), // a mark without its frame means nothing
+      ...(frame && i.atUrl !== undefined ? { atUrl: i.atUrl } : {}),
       ...(afterFrame ? { afterFrame } : {}),
       viewWidth: i.viewWidth,
       viewHeight: i.viewHeight,
@@ -395,6 +402,7 @@ export class AgentReplayRecorder {
           frameJpeg: atAction?.jpeg,
           mark: atAction ? targeted?.mark : undefined,
           afterJpeg: result?.jpeg,
+          atUrl: atAction?.url,
           viewWidth: size?.viewWidth ?? 0,
           viewHeight: size?.viewHeight ?? 0,
         });

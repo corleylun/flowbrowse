@@ -161,6 +161,7 @@ interface ReplayStepData {
   tool: string;
   detail?: string;
   url?: string;
+  atUrl?: string;
   title?: string;
   frame?: string;
   mark?: { kind: 'rect' | 'point'; x: number; y: number; w: number; h: number };
@@ -1486,7 +1487,9 @@ async function rpShow(): Promise<void> {
     none.textContent = '(no frame captured for this step)';
     rpCaption.appendChild(none);
   }
-  rpUrl.textContent = st.url ? redactDisplay(st.url) : '';
+  // The AT-action frame shows the page BEFORE the action; `url` is where the action ended up.
+  const shownUrl = slide.result ? st.url : (st.atUrl ?? st.url);
+  rpUrl.textContent = shownUrl ? redactDisplay(shownUrl) : '';
   rpPositionMark();
 }
 
