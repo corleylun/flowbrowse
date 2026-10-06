@@ -36,6 +36,8 @@ test('click_at schema: coords + optional button', () => {
   assert.throws(() => byName.click_at.inputSchema.parse({ x: 1, y: 2, button: 'middle' }), /left.*right/);
   assert.throws(() => byName.click_at.inputSchema.parse({ x: -1, y: 2 }), /out of range/);
   assert.throws(() => byName.click_at.inputSchema.parse({ x: 'a', y: 2 }), /finite number/);
+  assert.deepEqual(byName.click_at.inputSchema.parse({ x: '221', y: ' 333.0 ' }), { x: 221, y: 333, button: 'left' });
+  assert.throws(() => byName.click_at.inputSchema.parse({ x: '1e3', y: 2 }), /finite number/);
   assert.throws(() => byName.click_at.inputSchema.parse({ y: 2 }), /finite number/);
 });
 
