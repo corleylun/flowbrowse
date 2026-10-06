@@ -257,6 +257,8 @@ interface SafeCoBrowserApi {
   onPrivacyState(cb: (state: PrivacyState) => void): void;
   getSettings(): Promise<SettingsState>;
   setUserAgent(ua: string): Promise<{ userAgent: string; defaultUserAgent: string }>;
+  getProxy(): Promise<ProxyUiState>;
+  setProxy(cfg: ProxyUiInput, password?: string): Promise<ProxyUiState & { ok: boolean; error?: string }>;
   setApprovalTimeout(ms: number): Promise<{ approvalTimeoutMs: number }>;
   setTabControl(on: boolean): Promise<{ agentTabControl: boolean }>;
   getAgentEndpoint(): Promise<AgentEndpoint>;
@@ -265,6 +267,15 @@ interface SafeCoBrowserApi {
   setAgentLan(on: boolean): Promise<AgentEndpoint & { ok: boolean; error?: string }>;
   sendFeedback(message: string, email?: string): Promise<{ ok: boolean; error?: string }>;
 }
+
+interface ProxyUiInput {
+  enabled: boolean;
+  kind: 'http' | 'https' | 'socks5';
+  host: string;
+  port: number;
+  username: string;
+}
+type ProxyUiState = ProxyUiInput & { hasPassword: boolean };
 
 interface SettingsState {
   userAgent: string;
@@ -1930,6 +1941,46 @@ function applyCustomUa(): void {
   void applyUserAgentChoice(ua);
 }
 
+const pxEnabled = el('px-enabled') as HTMLInputElement;
+const pxKind = el('px-kind') as HTMLSelectElement;
+const pxHost = el('px-host') as HTMLInputElement;
+const pxPort = el('px-port') as HTMLInputElement;
+const pxUser = el('px-user') as HTMLInputElement;
+const pxPass = el('px-pass') as HTMLInputElement;
+const pxMsg = el('px-msg');
+let pxPassTouched = false;
+pxPass.addEventListener('input', () => (pxPassTouched = true));
+
+function renderProxy(p: ProxyUiState): void {
+  pxEnabled.checked = p.enabled;
+  pxKind.value = p.kind;
+  pxHost.value = p.host;
+  pxPort.value = p.port ? String(p.port) : '';
+  pxUser.value = p.username;
+  pxPass.value = '';
+  pxPass.placeholder = p.hasPassword ? 'Saved (encrypted)' : 'Password';
+  pxPassTouched = false;
+}
+
+async function applyProxy(clearPassword = false): Promise<void> {
+  pxMsg.textContent = '';
+  const port = Number(pxPort.value.trim());
+  const r = await jt.setProxy(
+    {
+      enabled: pxEnabled.checked,
+      kind: pxKind.value as ProxyUiInput['kind'],
+      host: pxHost.value.trim(),
+      port: Number.isInteger(port) ? port : 0,
+      username: pxUser.value,
+    },
+    clearPassword ? '' : pxPassTouched ? pxPass.value : undefined,
+  );
+  renderProxy(r);
+  pxMsg.textContent = r.ok ? 'Applied. Open tabs reloaded.' : (r.error ?? 'Could not save.');
+}
+el('px-apply').addEventListener('click', () => void applyProxy());
+el('px-clear-pass').addEventListener('click', () => void applyProxy(true));
+
 function openSettings(): void {
   setModal.classList.add('show');
   void jt.setModalOpen(true);
@@ -1943,6 +1994,7 @@ function openSettings(): void {
     agentEndpoint = ep;
     renderAgent();
   });
+  void jt.getProxy().then(renderProxy);
   void refreshHistoryCount();
   void rpRefresh(); // replay count + toggle in the Agent replays section
 }
