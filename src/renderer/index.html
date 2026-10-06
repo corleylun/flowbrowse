@@ -1408,6 +1408,26 @@
         </div>
 
         <div class="set-section">
+          <div class="set-h">Network proxy</div>
+          <p>Routes every tab through one HTTP, HTTPS or SOCKS5 proxy. The proxy operator can see which sites you connect to. If it is unreachable, pages fail to load rather than going direct. localhost is never proxied. While a proxy is on, WebRTC is limited to the proxy so a page cannot learn your real IP (video calls that need direct connections may not work). SOCKS5 with a username/password is not supported (Chromium cannot authenticate to SOCKS5).</p>
+          <label class="pv-enable"><input type="checkbox" id="px-enabled" /> Use a proxy</label>
+          <div class="set-row">
+            <select id="px-kind"><option value="http">HTTP</option><option value="https">HTTPS</option><option value="socks5">SOCKS5</option></select>
+            <input id="px-host" type="text" placeholder="Host" spellcheck="false" maxlength="253" />
+            <input id="px-port" type="text" placeholder="Port" spellcheck="false" maxlength="5" size="6" />
+          </div>
+          <div class="set-row">
+            <input id="px-user" type="text" placeholder="Username (optional)" spellcheck="false" maxlength="256" />
+            <input id="px-pass" type="password" placeholder="Password" maxlength="256" />
+          </div>
+          <div id="px-msg"></div>
+          <div class="set-row">
+            <button id="px-clear-pass" class="recbtn">Clear saved password</button>
+            <button id="px-apply" class="recbtn primary">Apply</button>
+          </div>
+        </div>
+
+        <div class="set-section">
           <div class="set-h">Approvals</div>
           <p>How long an approval card waits before it auto-<b>denies</b> (fail-closed). 5–600s.</p>
           <div class="set-row">

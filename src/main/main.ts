@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, session, ipcMain } from 'electron';
+import { app, BaseWindow, WebContentsView, session, ipcMain, safeStorage } from 'electron';
 import type { WebContents } from 'electron';
 import * as path from 'path';
 import { createCore } from '../core';
@@ -40,6 +40,7 @@ import { HistoryStore } from './history';
 import { BookmarkStore } from './bookmarks';
 import { PrivacyFilter } from '../privacy/filter';
 import { SettingsStore } from '../settings/settings';
+import { ProxyStore, proxyIsActive, toElectronProxy, type SecretCodec } from '../settings/proxy';
 import { plainChromiumUa } from '../settings/user-agent';
 import { TabModel } from '../tabs/tab-model';
 import { saveTabs, loadTabs } from '../tabs/tab-store';
@@ -206,6 +207,42 @@ const history = new HistoryStore(path.join(safecobrowserDir(), 'history.json'));
 
 // User bookmarks (global, HUMAN-only — never exposed to the agent, same class as history/downloads).
 const bookmarks = new BookmarkStore(path.join(safecobrowserDir(), 'bookmarks.json'));
+
+// Global network proxy (HTTP / HTTPS / SOCKS5) — HUMAN-ONLY, no agent tool reads or sets it. Applied to
+// every container session; a change is applied live and every open connection is closed, so the new
+// route takes effect immediately (otherwise a reload reuses the old, unproxied connection).
+const proxyCodec: SecretCodec = {
+  available: () => safeStorage.isEncryptionAvailable(),
+  encrypt: (p) => safeStorage.encryptString(p).toString('base64'),
+  decrypt: (b) => {
+    try {
+      return safeStorage.decryptString(Buffer.from(b, 'base64'));
+    } catch {
+      return null;
+    }
+  },
+};
+const proxy = new ProxyStore(path.join(safecobrowserDir(), 'proxy.json'), proxyCodec);
+const proxiedSessions = new Set<Electron.Session>();
+async function applyProxyTo(sess: Electron.Session): Promise<void> {
+  proxiedSessions.add(sess);
+  await sess.setProxy(toElectronProxy(proxy.get()));
+  await sess.closeAllConnections();
+}
+// WebRTC would otherwise reach STUN servers over plain UDP, outside the proxy, and tell a page the
+// real public IP (and make a proxy-aware challenge see two different IPs). While a proxy is on,
+// forbid any UDP that is not carried by the proxy.
+function applyWebRtcPolicy(wc: Electron.WebContents): void {
+  wc.setWebRTCIPHandlingPolicy(proxyIsActive(proxy.get()) ? 'disable_non_proxied_udp' : 'default');
+}
+// Proxy authentication: only ever answered for the configured proxy itself, never for a site.
+app.on('login', (event, _wc, _details, authInfo, callback) => {
+  const c = proxy.get();
+  if (authInfo.isProxy && proxyIsActive(c) && authInfo.host === c.host && authInfo.port === c.port && c.username) {
+    event.preventDefault();
+    callback(c.username, proxy.password() ?? '');
+  }
+});
 
 // The global User-Agent override is applied to every container session via app.userAgentFallback
 // (picked up by new WebContentsViews) and live-pushed to open tabs.
@@ -709,6 +746,7 @@ function destroyWebContents(wc: WebContents): void {
 function makeTabView(id: string, containerId: string): WebContentsView {
   const partition = containerManager.partitionFor(containerId);
   const sess = session.fromPartition(partition);
+  if (!proxiedSessions.has(sess)) void applyProxyTo(sess);
   const view = new WebContentsView({
     webPreferences: {
       session: sess,
@@ -721,6 +759,7 @@ function makeTabView(id: string, containerId: string): WebContentsView {
   // Route this container's downloads to its own folder (idempotent — one handler per session).
   downloads.attach(sess, partition, containerId);
   const wc = view.webContents;
+  applyWebRtcPolicy(wc);
 
   // Popups (window.open / target=_blank) open as a NEW TAB in the SAME container — never a
   // separate OS window — so they share this container's logged-in session. A popup that only
@@ -1169,6 +1208,18 @@ ipcMain.handle('settings:set-ua', (_e, ua: unknown) => {
   settings.setUserAgent(ua);
   applyUserAgent(true); // live-apply + reload open tabs
   return { userAgent: settings.getUserAgent(), defaultUserAgent };
+});
+ipcMain.handle('settings:get-proxy', (e) => (fromChrome(e) ? { ...proxy.get(), hasPassword: proxy.hasPassword() } : null));
+ipcMain.handle('settings:set-proxy', async (e, cfg: unknown, password: unknown) => {
+  if (!fromChrome(e)) return { ok: false, error: 'not allowed' };
+  const r = proxy.set(cfg, typeof password === 'string' ? password : undefined);
+  if (!r.ok) return { ok: false, error: r.error, ...proxy.get(), hasPassword: proxy.hasPassword() };
+  await Promise.all([...proxiedSessions].map((sess) => applyProxyTo(sess)));
+  for (const [, t] of tabs) {
+    applyWebRtcPolicy(t.view.webContents);
+    t.view.webContents.reload(); // live: pages pick up the new route now
+  }
+  return { ok: true, ...proxy.get(), hasPassword: proxy.hasPassword() };
 });
 ipcMain.handle('settings:set-approval-timeout', (_e, ms: unknown) => {
   settings.setApprovalTimeoutMs(ms); // re-read live by the approval provider

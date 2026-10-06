@@ -1,5 +1,14 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+interface ProxyInput {
+  enabled: boolean;
+  kind: 'http' | 'https' | 'socks5';
+  host: string;
+  port: number;
+  username: string;
+}
+type ProxyState = ProxyInput & { hasPassword: boolean };
+
 /**
  * Preload for the top-bar UI. Exposes a minimal, explicit navigation API over
  * the context bridge — the renderer never gets direct ipcRenderer/node access.
@@ -318,7 +327,8 @@ contextBridge.exposeInMainWorld('safecobrowser', {
     ipcRenderer.on('privacy:state', (_e, state: PrivacyState) => cb(state));
   },
 
-  // Settings (User-Agent override + approval timeout + agent tab control).
+  // Global proxy (HTTP / HTTPS / SOCKS5) — human-only; the password is write-only from here.
+// Settings (User-Agent override + approval timeout + agent tab control).
   getSettings: (): Promise<{
     userAgent: string;
     defaultUserAgent: string;
@@ -327,6 +337,9 @@ contextBridge.exposeInMainWorld('safecobrowser', {
   }> => ipcRenderer.invoke('settings:get'),
   setUserAgent: (ua: string): Promise<{ userAgent: string; defaultUserAgent: string }> =>
     ipcRenderer.invoke('settings:set-ua', ua),
+  getProxy: (): Promise<ProxyState> => ipcRenderer.invoke('settings:get-proxy'),
+  setProxy: (cfg: ProxyInput, password?: string): Promise<ProxyState & { ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('settings:set-proxy', cfg, password),
   setApprovalTimeout: (ms: number): Promise<{ approvalTimeoutMs: number }> =>
     ipcRenderer.invoke('settings:set-approval-timeout', ms),
   setTabControl: (on: boolean): Promise<{ agentTabControl: boolean }> =>
