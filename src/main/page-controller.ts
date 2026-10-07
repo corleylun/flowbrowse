@@ -318,9 +318,9 @@ export class ElectronPageController
 
   async click(tabId: string, selector: string, label?: string, live?: Liveness): Promise<ClickResult> {
     if (!this.hooks.realInputFor(tabId)) return { ...(await this.jsClick(tabId, selector, label)), realInput: false };
-    if (!this.hooks.isActiveTab(tabId)) {
-      return { ...(await this.jsClick(tabId, selector, label)), realInput: false, note: 'real input needs the active tab; used JS' };
-    }
+    // Selector click/fill with real input works on a BACKGROUND tab too (sendInputEvent reaches a hidden
+    // view — verified): the tab's own grant is the gate and the approval card names the tab. The coordinate
+    // tools stay active-tab-only (their approval needs a screenshot preview a hidden tab cannot give).
     const wc = this.wc(tabId);
     const pt = await this.locatePoint(tabId, selector, label, 'clickable');
     if (!pt.found) return { clicked: false, matched: '', realInput: true };
@@ -365,7 +365,7 @@ export class ElectronPageController
       if (!el) return { found: false, obscured: false, matched: '', x: 0, y: 0 };
       const matched = norm(el.innerText || el.value || el.getAttribute('aria-label') || el.tagName).slice(0, 100);
       el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-      await new Promise((r) => requestAnimationFrame(() => r(null))); // let the instant scroll apply
+      await new Promise((r) => { requestAnimationFrame(() => r(null)); setTimeout(() => r(null), 50); }); // let the instant scroll apply (rAF never fires in a hidden tab, so a timer backs it up)
       const r = el.getBoundingClientRect();
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
       // Occlusion: the point must resolve to our element (or a child), else something covers it.
@@ -420,15 +420,12 @@ export class ElectronPageController
 
   async fill(tabId: string, selector: string, value: string, label?: string, live?: Liveness): Promise<FillResult> {
     if (!this.hooks.realInputFor(tabId)) return { ...(await this.jsFill(tabId, selector, value, label)), realInput: false };
-    if (!this.hooks.isActiveTab(tabId)) {
-      return { ...(await this.jsFill(tabId, selector, value, label)), realInput: false, note: 'real input needs the active tab; used JS' };
-    }
     const wc = this.wc(tabId);
     const pt = await this.locatePoint(tabId, selector, label, 'field');
     if (!pt.found) return { filled: false, matched: '', realInput: true };
     if (pt.obscured) {
-      // Can't reliably real-click an obscured field to focus it — fall back honestly to the JS path.
-      return { ...(await this.jsFill(tabId, selector, value, label)), realInput: false, note: 'field obscured; used JS' };
+      // Can't reliably real-click an obscured field to focus it; real input is on, so refuse (no JS fallback).
+      return { filled: false, matched: pt.matched, realInput: true, note: 'field obscured by another element; not filled (real input is on, so no JS fallback)' };
     }
     ensureLive(live);
     this.markRect(tabId, pt.rect);
@@ -437,9 +434,9 @@ export class ElectronPageController
     await this.typeChars(wc, value, live); // per-char real keystrokes, re-checking liveness each char
     const landed = await this.fieldLanded(tabId, selector, value, label);
     if (landed.filled) return { filled: true, matched: landed.matched, realInput: true };
-    // Real typing didn't land (rich-text editor etc.) — fall back to the editor-aware JS insert,
-    // but still report realInput:true since real-input mode drove the action.
-    return { ...(await this.jsFill(tabId, selector, value, label)), realInput: true };
+    // Real typing didn't land (rich-text editor etc.). Real input is on, so do NOT fall back to the
+    // JS insert — say so; the human can turn Real input off for a tab whose editor rejects keystrokes.
+    return { filled: false, matched: landed.matched, realInput: true, note: 'real typing did not land; not filled by JS (real input is on, so no JS fallback)' };
   }
 
   /** Select all content of the focused element so the next keystroke overwrites it. */
@@ -825,7 +822,7 @@ export class ElectronPageController
       if (!el) return { found: false };
       const matched = (nameOf(el) || el.tagName).slice(0, 100);
       el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-      await new Promise((r) => requestAnimationFrame(() => r(null))); // let the instant scroll apply
+      await new Promise((r) => { requestAnimationFrame(() => r(null)); setTimeout(() => r(null), 50); }); // let the instant scroll apply (rAF never fires in a hidden tab, so a timer backs it up)
       const r = el.getBoundingClientRect();
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
       const vw = window.innerWidth, vh = window.innerHeight;

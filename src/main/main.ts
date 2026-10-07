@@ -305,13 +305,14 @@ const pageController = new ElectronPageController(
   (tabId) => tabs.get(tabId)?.view.webContents ?? null,
   {
     realInputFor: (id) => getRealInput(id),
-    // Active = the foreground/attached tab, NOT OS window focus: the agent commonly acts while the
-    // user's terminal is focused, and the app must never steal focus. Background tabs are detached
-    // (showActiveTabOnly) so they genuinely can't receive sendInputEvent → honest JS fallback.
+    // Active = the foreground tab, NOT OS window focus: the agent commonly acts while the user's terminal
+    // is focused, and the app must never steal focus. Used by the COORDINATE tools only (their approval
+    // needs a screenshot preview); selector click/fill real input also works on a background tab.
     isActiveTab: (id) => tabModel.activeId() === id,
     highlight: (id, mark) => {
-      showClickMarker(id, mark);
-      agentReplayRecorder.noteTarget(id, { ...mark }); // same DIP space the frame is captured in
+      showClickMarker(id, mark); // active tab only (inside)
+      // A hidden tab has no visible frame to capture, so don't queue a blank AT-frame for it.
+      if (tabModel.activeId() === id) agentReplayRecorder.noteTarget(id, { ...mark }); // same DIP space the frame is captured in
     },
   },
   ocrEngine,
@@ -594,7 +595,10 @@ function layout(): void {
     : approvalPending || activityOpen || suggestOpen || findOpen
       ? Math.min(expandedH, height)
       : CHROME_HEIGHT;
-  activeTab()?.view.setBounds({ x: 0, y: CHROME_HEIGHT, width, height: Math.max(0, height - CHROME_HEIGHT) });
+  // Every tab keeps real page bounds (not just the active one): a hidden tab is still acted on by real
+  // input and its viewport must not be 0x0 or stale after a resize.
+  const pageBounds = { x: 0, y: CHROME_HEIGHT, width, height: Math.max(0, height - CHROME_HEIGHT) };
+  for (const [, t] of tabs) t.view.setBounds(pageBounds);
   chromeView.setBounds({ x: 0, y: 0, width, height: chromeH });
 }
 

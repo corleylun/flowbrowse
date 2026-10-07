@@ -41,6 +41,8 @@ const MAX_COORD = 100_000; // generous upper bound; the controller clamps to the
 const MAX_TEXT = 10_000;
 
 function num(v: unknown, name: string): number {
+  // MCP clients that see an untyped schema often send numbers as strings ("221"); accept a plain numeric string.
+  if (typeof v === 'string' && /^\s*-?\d+(\.\d+)?\s*$/.test(v)) v = Number(v);
   if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error(`${name} must be a finite number`);
   return v;
 }
