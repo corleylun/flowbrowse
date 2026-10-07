@@ -87,14 +87,38 @@ test('obscured target → no click dispatched, honest note', async () => {
   assert.equal(fake.events.length, 0); // never fired a trusted click at the overlay
 });
 
-test('not the active tab → honest JS fallback, realInput:false', async () => {
-  const fake = makeFake();
+test('real input ON, tab in the BACKGROUND → still a real click/fill (the tab grant is the gate)', async () => {
+  const fake = makeFake({ landed: { filled: true, matched: 'q' } });
   const pc = controller(fake, { realInputFor: () => true, isActiveTab: () => false });
   const r = await pc.click('t', '#go', undefined, alwaysLive);
   assert.equal(r.clicked, true);
-  assert.equal(r.realInput, false);
+  assert.equal(r.realInput, true);
+  assert.deepEqual(fake.events.map((e) => e.type), ['mouseMove', 'mouseDown', 'mouseUp']);
+  const f = await pc.fill('t', '#q', 'hi', undefined, alwaysLive);
+  assert.equal(f.filled, true);
+  assert.equal(f.realInput, true);
+});
+
+test('coordinate tools stay ACTIVE-tab-only (their approval needs a screenshot preview)', async () => {
+  const fake = makeFake();
+  const pc = controller(fake, { realInputFor: () => true, isActiveTab: () => false });
+  const r = await pc.clickAt('t', 10, 10, 'left', alwaysLive);
+  assert.equal(r.done, false);
   assert.match(r.note ?? '', /active tab/);
   assert.equal(fake.events.length, 0);
+});
+
+test('real fill: an obscured field, or typing that does not land, is refused — never filled by JS', async () => {
+  const obscured = makeFake({ locate: { found: true, obscured: true, matched: 'q', x: 1, y: 1 } });
+  const a = await controller(obscured, { realInputFor: () => true, isActiveTab: () => true }).fill('t', '#q', 'hi', undefined, alwaysLive);
+  assert.equal(a.filled, false);
+  assert.equal(a.realInput, true);
+  assert.match(a.note ?? '', /obscured/);
+  const notLanded = makeFake({ landed: { filled: false, matched: 'q' } });
+  const b = await controller(notLanded, { realInputFor: () => true, isActiveTab: () => true }).fill('t', '#q', 'hi', undefined, alwaysLive);
+  assert.equal(b.filled, false, 'the JS insert must not run');
+  assert.equal(b.realInput, true);
+  assert.match(b.note ?? '', /did not land/);
 });
 
 test('real fill → focus click then per-char keyDown→char→keyUp, value lands', async () => {
